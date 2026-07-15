@@ -32,8 +32,8 @@ public class AlertController {
     }
 
     @GetMapping("/summary")
-    public ApiResponse<AlertSummaryResponse> summary() {
-        return ApiResponse.ok(alertService.summary());
+    public ApiResponse<AlertSummaryResponse> summary(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(alertService.summary(companyId));
     }
 
     @GetMapping("/{id}")

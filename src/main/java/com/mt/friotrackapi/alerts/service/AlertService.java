@@ -38,13 +38,14 @@ public class AlertService {
                 .orElseThrow(() -> new ApiException("Alerta no encontrada"));
     }
 
-    public AlertSummaryResponse summary() {
+    public AlertSummaryResponse summary(Long companyId) {
+        List<AlertResponse> scopedAlerts = findAll(companyId, null);
         int critical = 0;
         int warning = 0;
         int info = 0;
         int offline = 0;
 
-        for (AlertResponse alert : alerts) {
+        for (AlertResponse alert : scopedAlerts) {
             if ("CRITICAL".equalsIgnoreCase(alert.severity())) {
                 critical++;
             } else if ("WARNING".equalsIgnoreCase(alert.severity())) {
@@ -56,7 +57,7 @@ public class AlertService {
             }
         }
 
-        return new AlertSummaryResponse(critical, warning, info, offline, alerts.size());
+        return new AlertSummaryResponse(critical, warning, info, offline, scopedAlerts.size());
     }
 
     public AlertResponse resolve(Long id) {
