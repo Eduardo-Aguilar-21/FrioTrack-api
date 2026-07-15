@@ -1,0 +1,2 @@
+-- Initial database schema for FrioTrack.
+-- Tables will be added as each domain model is implemented.

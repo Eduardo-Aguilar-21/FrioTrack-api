@@ -1,0 +1,1 @@
+-- Initial role seed data will be added with the auth module.

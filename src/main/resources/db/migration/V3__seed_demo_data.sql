@@ -1,0 +1,1 @@
+-- Demo data for dashboard, vehicles, telemetry, and alerts will be added later.
