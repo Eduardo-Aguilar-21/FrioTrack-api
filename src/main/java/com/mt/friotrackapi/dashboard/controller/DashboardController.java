@@ -1,7 +1,9 @@
 package com.mt.friotrackapi.dashboard.controller;
 
+import com.mt.friotrackapi.alerts.dto.AlertResponse;
 import com.mt.friotrackapi.common.response.ApiResponse;
 import com.mt.friotrackapi.dashboard.dto.DashboardSummaryResponse;
+import com.mt.friotrackapi.dashboard.dto.FeaturedVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.FleetMapVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.TemperatureDistributionResponse;
 import com.mt.friotrackapi.dashboard.dto.VehicleStatusResponse;
@@ -41,5 +43,15 @@ public class DashboardController {
     @GetMapping("/temperature-distribution")
     public ApiResponse<TemperatureDistributionResponse> temperatureDistribution(@RequestParam(defaultValue = "1") Long companyId) {
         return ApiResponse.ok(dashboardService.temperatureDistribution(companyId));
+    }
+
+    @GetMapping("/recent-alerts")
+    public ApiResponse<List<AlertResponse>> recentAlerts(@RequestParam(defaultValue = "1") Long companyId, @RequestParam(defaultValue = "4") int limit) {
+        return ApiResponse.ok(dashboardService.recentAlerts(companyId, limit));
+    }
+
+    @GetMapping("/featured-vehicle")
+    public ApiResponse<FeaturedVehicleResponse> featuredVehicle(@RequestParam(defaultValue = "1") Long companyId, @RequestParam(required = false) Long vehicleId) {
+        return ApiResponse.ok(dashboardService.featuredVehicle(companyId, vehicleId));
     }
 }

@@ -1,18 +1,193 @@
 package com.mt.friotrackapi.telemetry.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
+import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
+import com.mt.friotrackapi.telemetry.dto.UpdateTelemetrySnapshotRequest;
 import com.mt.friotrackapi.telemetry.dto.VehicleEventResponse;
+import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.vehicles.service.VehicleService;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class TelemetryService {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Path snapshotsPath = Path.of(System.getProperty("user.dir"), "data", "telemetry-snapshots.json");
+    private final Path historyPath = Path.of(System.getProperty("user.dir"), "data", "temperature-history.json");
+    private final Path eventsPath = Path.of(System.getProperty("user.dir"), "data", "vehicle-events.json");
+    private final Map<Long, TelemetrySnapshotResponse> snapshots = new LinkedHashMap<>();
+    private final Map<Long, List<TemperaturePointResponse>> history = new LinkedHashMap<>();
+    private final Map<Long, List<VehicleEventResponse>> events = new LinkedHashMap<>();
+    private final VehicleService vehicleService;
+
+    public TelemetryService(VehicleService vehicleService) {
+        this.vehicleService = vehicleService;
+        loadAll();
+    }
+
     public TelemetrySnapshotResponse snapshot(Long vehicleId) {
+        vehicleService.findById(vehicleId);
+        TelemetrySnapshotResponse snapshot = snapshots.get(vehicleId);
+        if (snapshot != null) {
+            return snapshot;
+        }
+
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
         return new TelemetrySnapshotResponse(
                 vehicleId,
+                vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(),
+                vehicle.temperatureState(),
+                "--",
+                vehicle.doorState(),
+                vehicle.coolingUnitState(),
+                "--",
+                "--",
+                "-2 °C a 5 °C",
+                vehicle.latitude(),
+                vehicle.longitude(),
+                "Sin direccion registrada",
+                vehicle.lastCommunication()
+        );
+    }
+
+    public TelemetrySnapshotResponse updateSnapshot(UpdateTelemetrySnapshotRequest request) {
+        vehicleService.findById(request.vehicleId());
+        TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
+                request.vehicleId(),
+                request.temperature(),
+                request.temperatureState(),
+                request.humidity(),
+                request.doorState(),
+                request.coolingUnitState(),
+                request.fuelLevel(),
+                request.speed(),
+                request.targetRange(),
+                request.latitude(),
+                request.longitude(),
+                request.address(),
+                request.lastCommunication()
+        );
+        snapshots.put(request.vehicleId(), snapshot);
+        saveSnapshots();
+        return snapshot;
+    }
+
+    public List<TemperaturePointResponse> temperatureHistory(Long vehicleId) {
+        vehicleService.findById(vehicleId);
+        return history.getOrDefault(vehicleId, defaultHistory());
+    }
+
+    public List<TemperaturePointResponse> saveTemperatureHistory(SaveTemperatureHistoryRequest request) {
+        vehicleService.findById(request.vehicleId());
+        List<TemperaturePointResponse> points = new ArrayList<>(request.points());
+        history.put(request.vehicleId(), points);
+        saveHistory();
+        return points;
+    }
+
+    public List<VehicleEventResponse> events(Long vehicleId) {
+        vehicleService.findById(vehicleId);
+        return events.getOrDefault(vehicleId, defaultEvents());
+    }
+
+    public VehicleEventResponse addEvent(CreateVehicleEventRequest request) {
+        vehicleService.findById(request.vehicleId());
+        VehicleEventResponse event = new VehicleEventResponse(
+                request.type(),
+                request.title(),
+                request.description(),
+                request.time(),
+                request.severity()
+        );
+        List<VehicleEventResponse> vehicleEvents = new ArrayList<>(events.getOrDefault(request.vehicleId(), List.of()));
+        vehicleEvents.add(0, event);
+        events.put(request.vehicleId(), vehicleEvents);
+        saveEvents();
+        return event;
+    }
+
+    private void loadAll() {
+        loadSnapshots();
+        loadHistory();
+        loadEvents();
+    }
+
+    private void loadSnapshots() {
+        try {
+            if (Files.exists(snapshotsPath)) {
+                snapshots.putAll(objectMapper.readValue(snapshotsPath.toFile(), new TypeReference<Map<Long, TelemetrySnapshotResponse>>() {}));
+                return;
+            }
+            snapshots.put(12L, defaultSnapshot());
+            saveSnapshots();
+        } catch (IOException ex) {
+            throw new ApiException("No se pudo cargar snapshots de telemetria");
+        }
+    }
+
+    private void loadHistory() {
+        try {
+            if (Files.exists(historyPath)) {
+                history.putAll(objectMapper.readValue(historyPath.toFile(), new TypeReference<Map<Long, List<TemperaturePointResponse>>>() {}));
+                return;
+            }
+            history.put(12L, defaultHistory());
+            saveHistory();
+        } catch (IOException ex) {
+            throw new ApiException("No se pudo cargar historial de temperatura");
+        }
+    }
+
+    private void loadEvents() {
+        try {
+            if (Files.exists(eventsPath)) {
+                events.putAll(objectMapper.readValue(eventsPath.toFile(), new TypeReference<Map<Long, List<VehicleEventResponse>>>() {}));
+                return;
+            }
+            events.put(12L, defaultEvents());
+            saveEvents();
+        } catch (IOException ex) {
+            throw new ApiException("No se pudo cargar eventos de vehiculo");
+        }
+    }
+
+    private void saveSnapshots() {
+        write(snapshotsPath, snapshots, "No se pudo persistir snapshots de telemetria");
+    }
+
+    private void saveHistory() {
+        write(historyPath, history, "No se pudo persistir historial de temperatura");
+    }
+
+    private void saveEvents() {
+        write(eventsPath, events, "No se pudo persistir eventos de vehiculo");
+    }
+
+    private void write(Path path, Object value, String errorMessage) {
+        try {
+            Files.createDirectories(path.getParent());
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), value);
+        } catch (IOException ex) {
+            throw new ApiException(errorMessage);
+        }
+    }
+
+    private TelemetrySnapshotResponse defaultSnapshot() {
+        return new TelemetrySnapshotResponse(
+                12L,
                 "9.8 °C",
                 "Fuera de rango",
                 "45 %",
@@ -28,7 +203,7 @@ public class TelemetryService {
         );
     }
 
-    public List<TemperaturePointResponse> temperatureHistory(Long vehicleId) {
+    private List<TemperaturePointResponse> defaultHistory() {
         return List.of(
                 new TemperaturePointResponse("12:00", 2.4),
                 new TemperaturePointResponse("14:00", 0.3),
@@ -46,7 +221,7 @@ public class TelemetryService {
         );
     }
 
-    public List<VehicleEventResponse> events(Long vehicleId) {
+    private List<VehicleEventResponse> defaultEvents() {
         return List.of(
                 new VehicleEventResponse("TEMPERATURE", "Temperatura alta: 9.8 °C", "Fuera de rango", "10:32", "CRITICAL"),
                 new VehicleEventResponse("DOOR", "Puerta abierta", "Puerta delantera", "10:30", "WARNING"),

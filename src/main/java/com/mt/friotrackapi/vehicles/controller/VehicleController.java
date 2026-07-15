@@ -5,10 +5,15 @@ import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
 import com.mt.friotrackapi.telemetry.dto.VehicleEventResponse;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
+import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +40,17 @@ public class VehicleController {
     @GetMapping("/{id}")
     public ApiResponse<VehicleResponse> findById(@PathVariable Long id) {
         return ApiResponse.ok(vehicleService.findById(id));
+    }
+
+    @PostMapping
+    public ApiResponse<VehicleResponse> create(@Valid @RequestBody CreateVehicleRequest request) {
+        return ApiResponse.ok("Vehiculo creado", vehicleService.create(request));
+    }
+
+
+    @PutMapping("/{id}")
+    public ApiResponse<VehicleResponse> update(@PathVariable Long id, @Valid @RequestBody CreateVehicleRequest request) {
+        return ApiResponse.ok("Vehiculo actualizado", vehicleService.update(id, request));
     }
 
     @GetMapping("/{id}/telemetry")

@@ -1,45 +1,180 @@
 package com.mt.friotrackapi.dashboard.service;
 
+import com.mt.friotrackapi.alerts.dto.AlertResponse;
+import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.dashboard.dto.DashboardSummaryResponse;
+import com.mt.friotrackapi.dashboard.dto.FeaturedVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.FleetMapVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.TemperatureDistributionResponse;
 import com.mt.friotrackapi.dashboard.dto.VehicleStatusResponse;
+import com.mt.friotrackapi.telemetry.service.TelemetryService;
+import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.vehicles.service.VehicleService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.OptionalDouble;
 
 @Service
 public class DashboardService {
 
+    private static final String TARGET_RANGE = "-2 °C a 5 °C";
+
+    private final VehicleService vehicleService;
+    private final AlertService alertService;
+    private final TelemetryService telemetryService;
+
+    public DashboardService(VehicleService vehicleService, AlertService alertService, TelemetryService telemetryService) {
+        this.vehicleService = vehicleService;
+        this.alertService = alertService;
+        this.telemetryService = telemetryService;
+    }
+
     public DashboardSummaryResponse summary(Long companyId) {
-        return new DashboardSummaryResponse(25, 18, 4, 2, 1, "2.7 °C");
+        List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
+        Counts counts = countStatuses(vehicles);
+
+        OptionalDouble average = vehicles.stream()
+                .map(VehicleResponse::currentTemperature)
+                .map(DashboardService::parseTemperature)
+                .filter(Double::isFinite)
+                .mapToDouble(Double::doubleValue)
+                .average();
+
+        String averageTemperature = average.isPresent()
+                ? String.format(Locale.US, "%.1f °C", average.getAsDouble())
+                : "--";
+
+        return new DashboardSummaryResponse(
+                vehicles.size(),
+                counts.inRange(),
+                counts.warning(),
+                counts.outOfRange(),
+                counts.offline(),
+                averageTemperature
+        );
     }
 
     public List<FleetMapVehicleResponse> fleetMap(Long companyId) {
-        return List.of(
-                new FleetMapVehicleResponse(1L, "Camion 01 - AAA111", -11.985, -77.065, "EN_RANGO", "#35b553", "2.1 °C"),
-                new FleetMapVehicleResponse(2L, "Camion 02 - BBB222", -12.010, -77.115, "EN_RANGO", "#35b553", "3.4 °C"),
-                new FleetMapVehicleResponse(3L, "Camion 03 - GHI789", -12.027, -77.014, "ADVERTENCIA", "#ffad0a", "6.7 °C"),
-                new FleetMapVehicleResponse(4L, "Camion 04 - CCC333", -12.005, -76.955, "EN_RANGO", "#35b553", "3.0 °C"),
-                new FleetMapVehicleResponse(5L, "Camion 05 - DDD444", -12.080, -77.075, "EN_RANGO", "#35b553", "2.8 °C"),
-                new FleetMapVehicleResponse(6L, "Camion 06 - EEE555", -12.071, -76.995, "EN_RANGO", "#35b553", "4.1 °C"),
-                new FleetMapVehicleResponse(12L, "Camion 12 - ABC123", -12.055, -76.935, "CRITICO", "#ff2d2d", "9.8 °C"),
-                new FleetMapVehicleResponse(21L, "Camion 21 - MNO321", -12.115, -77.035, "SIN_DATOS", "#70809b", "Sin datos")
-        );
+        return vehicleService.findAll(companyId).stream()
+                .map(vehicle -> new FleetMapVehicleResponse(
+                        vehicle.id(),
+                        vehicle.label(),
+                        vehicle.latitude(),
+                        vehicle.longitude(),
+                        vehicle.status(),
+                        statusColor(vehicle.status()),
+                        vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()
+                ))
+                .toList();
     }
 
     public List<VehicleStatusResponse> vehicleStatus(Long companyId) {
-        return List.of(
-                new VehicleStatusResponse(1L, "Camion 01 - AAA111", "En rango", "2.1 °C", "En rango", "Cerrada", "Encendido", "Hace 1 min"),
-                new VehicleStatusResponse(2L, "Camion 02 - BBB222", "En rango", "3.4 °C", "En rango", "Cerrada", "Encendido", "Hace 2 min"),
-                new VehicleStatusResponse(3L, "Camion 03 - GHI789", "Advertencia", "6.7 °C", "Fuera de rango", "Cerrada", "Encendido", "Hace 2 min"),
-                new VehicleStatusResponse(7L, "Camion 07 - DEF456", "Advertencia", "4.8 °C", "En rango", "Abierta", "Encendido", "Hace 3 min"),
-                new VehicleStatusResponse(12L, "Camion 12 - ABC123", "Critico", "9.8 °C", "Fuera de rango", "Cerrada", "Encendido", "Hace 1 min"),
-                new VehicleStatusResponse(21L, "Camion 21 - MNO321", "Sin comunicacion", "--", "--", "--", "--", "Hace 25 min")
-        );
+        return vehicleService.findAll(companyId).stream()
+                .map(vehicle -> new VehicleStatusResponse(
+                        vehicle.id(),
+                        vehicle.label(),
+                        statusLabel(vehicle.status()),
+                        vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(),
+                        vehicle.temperatureState(),
+                        vehicle.doorState(),
+                        vehicle.coolingUnitState(),
+                        vehicle.lastCommunication()
+                ))
+                .toList();
     }
 
     public TemperatureDistributionResponse temperatureDistribution(Long companyId) {
-        return new TemperatureDistributionResponse(18, 4, 2, 1, "-2 °C a 5 °C");
+        Counts counts = countStatuses(vehicleService.findAll(companyId));
+        return new TemperatureDistributionResponse(
+                counts.inRange(),
+                counts.warning(),
+                counts.outOfRange(),
+                counts.offline(),
+                TARGET_RANGE
+        );
+    }
+
+    public List<AlertResponse> recentAlerts(Long companyId, int limit) {
+        return alertService.findAll(companyId, null).stream()
+                .limit(Math.max(1, limit))
+                .toList();
+    }
+
+    public FeaturedVehicleResponse featuredVehicle(Long companyId, Long vehicleId) {
+        VehicleResponse vehicle = vehicleId == null
+                ? vehicleService.findAll(companyId).stream()
+                        .filter(item -> "CRITICO".equals(normalizeStatus(item.status())))
+                        .findFirst()
+                        .orElseGet(() -> vehicleService.findAll(companyId).stream()
+                                .findFirst()
+                                .orElseThrow(() -> new com.mt.friotrackapi.common.exception.ApiException("No hay vehiculos para la empresa")))
+                : vehicleService.findById(vehicleId);
+
+        return new FeaturedVehicleResponse(vehicle, telemetryService.snapshot(vehicle.id()));
+    }
+
+    private Counts countStatuses(List<VehicleResponse> vehicles) {
+        int inRange = 0;
+        int warning = 0;
+        int outOfRange = 0;
+        int offline = 0;
+
+        for (VehicleResponse vehicle : vehicles) {
+            String status = normalizeStatus(vehicle.status());
+            if ("EN_RANGO".equals(status)) {
+                inRange++;
+            } else if ("ADVERTENCIA".equals(status)) {
+                warning++;
+            } else if ("CRITICO".equals(status)) {
+                outOfRange++;
+            } else if ("SIN_COMUNICACION".equals(status) || "SIN_DATOS".equals(status)) {
+                offline++;
+            }
+        }
+
+        return new Counts(inRange, warning, outOfRange, offline);
+    }
+
+    private static String normalizeStatus(String status) {
+        if (status == null) {
+            return "SIN_DATOS";
+        }
+        return status.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+    }
+
+    private static String statusColor(String status) {
+        return switch (normalizeStatus(status)) {
+            case "EN_RANGO" -> "#35b553";
+            case "ADVERTENCIA" -> "#ffad0a";
+            case "CRITICO" -> "#ff2d2d";
+            default -> "#70809b";
+        };
+    }
+
+    private static String statusLabel(String status) {
+        return switch (normalizeStatus(status)) {
+            case "EN_RANGO" -> "En rango";
+            case "ADVERTENCIA" -> "Advertencia";
+            case "CRITICO" -> "Critico";
+            case "SIN_COMUNICACION", "SIN_DATOS" -> "Sin comunicacion";
+            default -> status == null ? "Sin datos" : status;
+        };
+    }
+
+    private static Double parseTemperature(String temperature) {
+        if (temperature == null || temperature.isBlank()) {
+            return Double.NaN;
+        }
+
+        try {
+            return Double.parseDouble(temperature.replace("°C", "").replace("C", "").trim());
+        } catch (NumberFormatException ex) {
+            return Double.NaN;
+        }
+    }
+
+    private record Counts(int inRange, int warning, int outOfRange, int offline) {
     }
 }

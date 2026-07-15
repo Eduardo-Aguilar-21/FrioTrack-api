@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -39,4 +40,11 @@ public class UserController {
     public ApiResponse<UserResponse> create(@Valid @RequestBody CreateUserRequest request) {
         return ApiResponse.ok("Usuario creado", userService.create(request));
     }
+
+
+    @PutMapping("/{id}")
+    public ApiResponse<UserResponse> update(@PathVariable Long id, @Valid @RequestBody CreateUserRequest request) {
+        return ApiResponse.ok("Usuario actualizado", userService.update(id, request));
+    }
+
 }

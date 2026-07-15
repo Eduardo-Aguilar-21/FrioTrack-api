@@ -9,7 +9,7 @@ public record CreateUserRequest(
         @NotBlank String username,
         @NotBlank String name,
         @NotBlank @Email String email,
-        @NotBlank String password,
+        String password,
         @NotNull Long roleId
 ) {
 }
