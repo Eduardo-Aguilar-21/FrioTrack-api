@@ -145,6 +145,33 @@ public class UserService {
         return updated.toResponse();
     }
 
+    public UserResponse setStatus(Long id, String status) {
+        UserAccount current = findAccountById(id);
+        String nextStatus = normalizeStatus(status);
+        UserAccount updated = new UserAccount(
+                current.id(),
+                current.companyId(),
+                current.companyName(),
+                current.username(),
+                current.name(),
+                current.email(),
+                current.password(),
+                current.role(),
+                nextStatus
+        );
+        users.set(users.indexOf(current), updated);
+        saveUsers();
+        return updated.toResponse();
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "INACTIVE";
+        }
+        String normalized = status.trim().toUpperCase(java.util.Locale.ROOT);
+        return normalized.equals("ACTIVE") ? "ACTIVE" : "INACTIVE";
+    }
+
     private Long nextId() {
         return users.stream().mapToLong(UserAccount::id).max().orElse(0L) + 1;
     }

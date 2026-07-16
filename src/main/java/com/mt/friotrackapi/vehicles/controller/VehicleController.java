@@ -12,6 +12,7 @@ import com.mt.friotrackapi.vehicles.service.VehicleService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -54,6 +55,12 @@ public class VehicleController {
     public ApiResponse<VehicleResponse> update(@PathVariable Long id, @Valid @RequestBody CreateVehicleRequest request) {
         requireVehicle(id);
         return ApiResponse.ok("Vehiculo actualizado", vehicleService.update(id, scopedRequest(request)));
+    }
+
+    @PatchMapping("/{id}/status/{status}")
+    public ApiResponse<VehicleResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
+        requireVehicle(id);
+        return ApiResponse.ok("Estado de vehiculo actualizado", vehicleService.setStatus(id, status));
     }
 
     @GetMapping("/{id}/telemetry")

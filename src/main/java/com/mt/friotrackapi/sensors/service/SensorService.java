@@ -113,6 +113,32 @@ public class SensorService {
         return updated;
     }
 
+    public SensorResponse setStatus(Long id, String status) {
+        SensorResponse current = findById(id);
+        SensorResponse updated = new SensorResponse(
+                current.id(),
+                current.companyId(),
+                current.vehicleId(),
+                current.code(),
+                current.vehicleLabel(),
+                current.type(),
+                current.unit(),
+                current.lastValue(),
+                normalizeStatus(status)
+        );
+        sensors.set(sensors.indexOf(current), updated);
+        saveSensors();
+        return updated;
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "INACTIVE";
+        }
+        String normalized = status.trim().toUpperCase(java.util.Locale.ROOT);
+        return normalized.equals("ACTIVE") ? "ACTIVE" : "INACTIVE";
+    }
+
     private Long nextId() {
         return sensors.stream().mapToLong(SensorResponse::id).max().orElse(0L) + 1;
     }

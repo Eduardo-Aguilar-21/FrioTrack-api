@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: friotrack-postgres
+    environment:
+      POSTGRES_DB: friotrack
+      POSTGRES_USER: friotrack
+      POSTGRES_PASSWORD: friotrack_dev
+    ports:
+      - "5544:5432"
+    volumes:
+      - friotrack-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U friotrack -d friotrack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: friotrack-mqtt
+    environment:
+      FRIOTRACK_MQTT_PASSWORD: ${FRIOTRACK_MQTT_PASSWORD:?set FRIOTRACK_MQTT_PASSWORD}
+    ports:
+      - "1885:1883"
+    volumes:
+      - ./docker/mosquitto/config:/mosquitto/config:ro
+      - ./docker/mosquitto/data:/mosquitto/data
+      - ./docker/mosquitto/log:/mosquitto/log
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mosquitto_sub -h 127.0.0.1 -p 1883 -u friotrack_device -P "$$FRIOTRACK_MQTT_PASSWORD" -t '$$SYS/broker/version' -C 1 -W 3 >/dev/null 2>&1 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  friotrack-postgres-data:

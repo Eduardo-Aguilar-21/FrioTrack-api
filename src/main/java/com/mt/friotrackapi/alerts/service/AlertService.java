@@ -30,10 +30,19 @@ public class AlertService {
     }
 
     public List<AlertResponse> findAll(Long companyId, String severity) {
+        return findAll(companyId, severity, null, null, null, null);
+    }
+
+    public List<AlertResponse> findAll(Long companyId, String severity, String status, String type, String vehicle, String search) {
+        String term = normalize(search);
         return alerts.stream()
                 .filter(alert -> companyId == null || alert.companyId().equals(companyId))
                 .filter(this::isProtocolEnabled)
-                .filter(alert -> severity == null || severity.isBlank() || severity.equalsIgnoreCase("ALL") || alert.severity().equalsIgnoreCase(severity))
+                .filter(alert -> matches(severity, alert.severity()))
+                .filter(alert -> matches(status, alert.status()))
+                .filter(alert -> matches(type, alert.type()))
+                .filter(alert -> isBlank(vehicle) || contains(alert.vehicleLabel(), vehicle) || contains(alert.vehicleCode(), vehicle))
+                .filter(alert -> isBlank(term) || contains(searchText(alert), term))
                 .toList();
     }
 
@@ -46,7 +55,9 @@ public class AlertService {
     }
 
     public AlertSummaryResponse summary(Long companyId) {
-        List<AlertResponse> scopedAlerts = findAll(companyId, null);
+        List<AlertResponse> scopedAlerts = findAll(companyId, null).stream()
+                .filter(alert -> !alert.status().equalsIgnoreCase("Resuelta"))
+                .toList();
         int critical = 0;
         int warning = 0;
         int info = 0;
@@ -82,9 +93,23 @@ public class AlertService {
         return total == 0 ? 0 : Math.round((value * 100.0f) / total);
     }
 
+    public AlertResponse acknowledge(Long id) {
+        return updateStatus(id, "Reconocida");
+    }
+
     public AlertResponse resolve(Long id) {
+        return updateStatus(id, "Resuelta");
+    }
+
+    public void delete(Long id) {
         AlertResponse alert = findById(id);
-        AlertResponse resolved = new AlertResponse(
+        alerts.remove(alert);
+        saveAlerts();
+    }
+
+    private AlertResponse updateStatus(Long id, String status) {
+        AlertResponse alert = findById(id);
+        AlertResponse updated = new AlertResponse(
                 alert.id(),
                 alert.companyId(),
                 alert.type(),
@@ -94,12 +119,12 @@ public class AlertService {
                 alert.vehicleLabel(),
                 alert.vehicleCode(),
                 alert.occurredAtLabel(),
-                "Resuelta",
+                status,
                 alert.duration()
         );
-        alerts.set(alerts.indexOf(alert), resolved);
+        alerts.set(alerts.indexOf(alert), updated);
         saveAlerts();
-        return resolved;
+        return updated;
     }
 
     public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
@@ -171,6 +196,26 @@ public class AlertService {
 
     private boolean isProtocolEnabled(AlertResponse alert) {
         return protocolConfigService.isEventTypeEnabled(alert.companyId(), alert.type());
+    }
+
+    private boolean matches(String expected, String actual) {
+        return isBlank(expected) || "ALL".equalsIgnoreCase(expected) || normalize(actual).equals(normalize(expected));
+    }
+
+    private boolean contains(String value, String term) {
+        return normalize(value).contains(normalize(term));
+    }
+
+    private String searchText(AlertResponse alert) {
+        return alert.title() + " " + alert.description() + " " + alert.vehicleLabel() + " " + alert.vehicleCode() + " " + alert.type() + " " + alert.severity() + " " + alert.status();
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private void loadAlerts() {

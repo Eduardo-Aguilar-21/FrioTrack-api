@@ -9,6 +9,7 @@ import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -47,6 +48,13 @@ public class SensorController {
         SensorResponse sensor = sensorService.findById(id);
         tenantAccessService.requireCompany(sensor.companyId());
         return ApiResponse.ok("Sensor actualizado", sensorService.update(id, scopedRequest(request)));
+    }
+
+    @PatchMapping("/{id}/status/{status}")
+    public ApiResponse<SensorResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
+        SensorResponse sensor = sensorService.findById(id);
+        tenantAccessService.requireCompany(sensor.companyId());
+        return ApiResponse.ok("Estado de sensor actualizado", sensorService.setStatus(id, status));
     }
 
     private CreateSensorRequest scopedRequest(CreateSensorRequest request) {

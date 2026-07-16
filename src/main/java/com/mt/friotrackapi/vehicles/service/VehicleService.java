@@ -126,6 +126,34 @@ public class VehicleService {
         return updated;
     }
 
+    public VehicleResponse setStatus(Long id, String status) {
+        VehicleResponse current = findById(id);
+        VehicleResponse updated = new VehicleResponse(
+                current.id(),
+                current.companyId(),
+                current.code(),
+                current.plate(),
+                current.label(),
+                normalizeStatus(status),
+                current.driver(),
+                current.imei(),
+                current.model(),
+                current.year(),
+                current.unitType(),
+                current.loadCapacityKg(),
+                current.latitude(),
+                current.longitude(),
+                current.currentTemperature(),
+                current.temperatureState(),
+                current.doorState(),
+                current.coolingUnitState(),
+                current.lastCommunication()
+        );
+        vehicles.set(vehicles.indexOf(current), updated);
+        saveVehicles();
+        return updated;
+    }
+
     public VehicleResponse updateTelemetryState(
             Long id,
             Double latitude,
@@ -162,6 +190,14 @@ public class VehicleService {
         vehicles.set(vehicles.indexOf(current), updated);
         saveVehicles();
         return updated;
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "INACTIVE";
+        }
+        String normalized = status.trim().toUpperCase(java.util.Locale.ROOT);
+        return normalized.equals("ACTIVE") || normalized.equals("EN_RANGO") ? "EN_RANGO" : "INACTIVE";
     }
 
     private String vehicleStatus(Long companyId, String currentTemperature, String temperatureState, String currentStatus) {

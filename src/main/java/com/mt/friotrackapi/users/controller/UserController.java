@@ -8,6 +8,7 @@ import com.mt.friotrackapi.users.service.UserService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,5 +52,11 @@ public class UserController {
         tenantAccessService.requireCompany(userService.findById(id).companyId());
         CreateUserRequest scoped = new CreateUserRequest(tenantAccessService.companyId(), request.username(), request.name(), request.email(), request.password(), request.roleId());
         return ApiResponse.ok("Usuario actualizado", userService.update(id, scoped));
+    }
+
+    @PatchMapping("/{id}/status/{status}")
+    public ApiResponse<UserResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
+        tenantAccessService.requireCompany(userService.findById(id).companyId());
+        return ApiResponse.ok("Estado de usuario actualizado", userService.setStatus(id, status));
     }
 }
