@@ -6,8 +6,10 @@ import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
+import com.mt.friotrackapi.telemetry.dto.TemperatureChartResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
 import com.mt.friotrackapi.telemetry.dto.UpdateTelemetrySnapshotRequest;
+import com.mt.friotrackapi.telemetry.dto.VehicleDailySummaryResponse;
 import com.mt.friotrackapi.telemetry.dto.VehicleEventResponse;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
@@ -98,6 +100,58 @@ public class TelemetryService {
         return points;
     }
 
+    public TemperatureChartResponse temperatureChart(Long vehicleId) {
+        TelemetrySnapshotResponse snapshot = snapshot(vehicleId);
+        List<TemperaturePointResponse> points = temperatureHistory(vehicleId);
+        Range range = parseRange(snapshot.targetRange());
+        return new TemperatureChartResponse(
+                points,
+                range.min(),
+                range.max(),
+                String.format("Min: %.0f °C", range.min()),
+                String.format("Max: %.0f °C", range.max()),
+                Math.min(-5.0, range.min() - 3.0),
+                Math.max(15.0, range.max() + 10.0),
+                5
+        );
+    }
+
+    public VehicleDailySummaryResponse dailySummary(Long vehicleId) {
+        TelemetrySnapshotResponse snapshot = snapshot(vehicleId);
+        List<TemperaturePointResponse> points = temperatureHistory(vehicleId);
+        List<VehicleEventResponse> vehicleEvents = events(vehicleId);
+        Range range = parseRange(snapshot.targetRange());
+
+        int total = points.size();
+        int inRange = 0;
+        double sum = 0;
+
+        for (TemperaturePointResponse point : points) {
+            double temperature = point.temperature();
+            if (temperature >= range.min() && temperature <= range.max()) {
+                inRange++;
+            }
+            sum += temperature;
+        }
+
+        int outOfRange = total - inRange;
+        long doorOpenings = vehicleEvents.stream()
+                .filter(event -> "DOOR".equalsIgnoreCase(event.type()))
+                .count();
+        String average = total == 0 ? "--" : String.format(java.util.Locale.US, "%.1f °C", sum / total);
+
+        return new VehicleDailySummaryResponse(
+                percent(inRange, total),
+                inRange + "/" + total + " lecturas",
+                percent(outOfRange, total),
+                outOfRange + "/" + total + " lecturas",
+                (int) doorOpenings,
+                "Hoy",
+                average,
+                "Hoy"
+        );
+    }
+
     public List<VehicleEventResponse> events(Long vehicleId) {
         vehicleService.findById(vehicleId);
         return events.getOrDefault(vehicleId, defaultEvents());
@@ -183,6 +237,32 @@ public class TelemetryService {
         } catch (IOException ex) {
             throw new ApiException(errorMessage);
         }
+    }
+
+
+    private static int percent(int value, int total) {
+        return total == 0 ? 0 : Math.round((value * 100.0f) / total);
+    }
+
+    private static Range parseRange(String targetRange) {
+        if (targetRange == null || targetRange.isBlank()) {
+            return new Range(-2.0, 5.0);
+        }
+
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("-?\\d+(?:\\.\\d+)?").matcher(targetRange);
+        java.util.List<Double> values = new java.util.ArrayList<>();
+        while (matcher.find()) {
+            values.add(Double.parseDouble(matcher.group()));
+        }
+
+        if (values.size() >= 2) {
+            return new Range(values.get(0), values.get(1));
+        }
+
+        return new Range(-2.0, 5.0);
+    }
+
+    private record Range(double min, double max) {
     }
 
     private TelemetrySnapshotResponse defaultSnapshot() {

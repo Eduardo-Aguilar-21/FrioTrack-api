@@ -4,8 +4,10 @@ import com.mt.friotrackapi.common.response.ApiResponse;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
+import com.mt.friotrackapi.telemetry.dto.TemperatureChartResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
 import com.mt.friotrackapi.telemetry.dto.UpdateTelemetrySnapshotRequest;
+import com.mt.friotrackapi.telemetry.dto.VehicleDailySummaryResponse;
 import com.mt.friotrackapi.telemetry.dto.VehicleEventResponse;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import jakarta.validation.Valid;
@@ -57,6 +59,16 @@ public class TelemetryController {
     @GetMapping("/vehicles/{vehicleId}/temperature-history")
     public ApiResponse<List<TemperaturePointResponse>> temperatureHistory(@PathVariable Long vehicleId) {
         return ApiResponse.ok(telemetryService.temperatureHistory(vehicleId));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/temperature-chart")
+    public ApiResponse<TemperatureChartResponse> temperatureChart(@PathVariable Long vehicleId) {
+        return ApiResponse.ok(telemetryService.temperatureChart(vehicleId));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/daily-summary")
+    public ApiResponse<VehicleDailySummaryResponse> dailySummary(@PathVariable Long vehicleId) {
+        return ApiResponse.ok(telemetryService.dailySummary(vehicleId));
     }
 
     @PutMapping("/vehicles/{vehicleId}/temperature-history")
