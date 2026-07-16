@@ -57,7 +57,22 @@ public class AlertService {
             }
         }
 
-        return new AlertSummaryResponse(critical, warning, info, offline, scopedAlerts.size());
+        int total = scopedAlerts.size();
+        return new AlertSummaryResponse(
+                critical,
+                percent(critical, total),
+                warning,
+                percent(warning, total),
+                info,
+                percent(info, total),
+                offline,
+                percent(offline, total),
+                total
+        );
+    }
+
+    private static int percent(int value, int total) {
+        return total == 0 ? 0 : Math.round((value * 100.0f) / total);
     }
 
     public AlertResponse resolve(Long id) {
