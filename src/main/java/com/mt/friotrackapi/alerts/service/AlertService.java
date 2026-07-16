@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.alerts.dto.AlertResponse;
 import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -19,14 +20,17 @@ public class AlertService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "alerts.json");
     private final List<AlertResponse> alerts = new ArrayList<>();
+    private final ProtocolConfigService protocolConfigService;
 
-    public AlertService() {
+    public AlertService(ProtocolConfigService protocolConfigService) {
+        this.protocolConfigService = protocolConfigService;
         loadAlerts();
     }
 
     public List<AlertResponse> findAll(Long companyId, String severity) {
         return alerts.stream()
                 .filter(alert -> companyId == null || alert.companyId().equals(companyId))
+                .filter(this::isProtocolEnabled)
                 .filter(alert -> severity == null || severity.isBlank() || severity.equalsIgnoreCase("ALL") || alert.severity().equalsIgnoreCase(severity))
                 .toList();
     }
@@ -34,6 +38,7 @@ public class AlertService {
     public AlertResponse findById(Long id) {
         return alerts.stream()
                 .filter(alert -> alert.id().equals(id))
+                .filter(this::isProtocolEnabled)
                 .findFirst()
                 .orElseThrow(() -> new ApiException("Alerta no encontrada"));
     }
@@ -93,6 +98,10 @@ public class AlertService {
         alerts.set(alerts.indexOf(alert), resolved);
         saveAlerts();
         return resolved;
+    }
+
+    private boolean isProtocolEnabled(AlertResponse alert) {
+        return protocolConfigService.isEventTypeEnabled(alert.companyId(), alert.type());
     }
 
     private void loadAlerts() {

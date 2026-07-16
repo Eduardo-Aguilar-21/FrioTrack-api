@@ -36,6 +36,41 @@ public class ProtocolConfigService {
         return toResponse(config);
     }
 
+
+    public boolean isFieldEnabled(Long companyId, String targetField) {
+        if (targetField == null || targetField.isBlank()) {
+            return true;
+        }
+
+        ProtocolConfigResponse config = findByCompany(companyId);
+        return config.fields().stream()
+                .filter(field -> targetField.equalsIgnoreCase(field.targetField()) || targetField.equalsIgnoreCase(field.key()))
+                .findFirst()
+                .map(ProtocolFieldConfigResponse::enabled)
+                .orElse(true);
+    }
+
+    public boolean isEventTypeEnabled(Long companyId, String type) {
+        String targetField = targetFieldForType(type);
+        return targetField == null || isFieldEnabled(companyId, targetField);
+    }
+
+    public String targetFieldForType(String type) {
+        if (type == null) {
+            return null;
+        }
+
+        return switch (type.trim().toUpperCase()) {
+            case "TEMPERATURE" -> "temperature";
+            case "DOOR" -> "doorState";
+            case "COOLING" -> "coolingUnitState";
+            case "FUEL" -> "fuelLevel";
+            case "SPEED" -> "speed";
+            case "HUMIDITY" -> "humidity";
+            default -> null;
+        };
+    }
+
     public ProtocolConfigResponse save(SaveProtocolConfigRequest request) {
         companyService.findById(request.companyId());
         StoredProtocolConfig config = new StoredProtocolConfig(

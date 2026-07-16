@@ -3,6 +3,7 @@ package com.mt.friotrackapi.telemetry.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
@@ -34,22 +35,28 @@ public class TelemetryService {
     private final Map<Long, List<TemperaturePointResponse>> history = new LinkedHashMap<>();
     private final Map<Long, List<VehicleEventResponse>> events = new LinkedHashMap<>();
     private final VehicleService vehicleService;
+    private final ProtocolConfigService protocolConfigService;
 
-    public TelemetryService(VehicleService vehicleService) {
+    public TelemetryService(VehicleService vehicleService, ProtocolConfigService protocolConfigService) {
         this.vehicleService = vehicleService;
+        this.protocolConfigService = protocolConfigService;
         loadAll();
     }
 
     public TelemetrySnapshotResponse snapshot(Long vehicleId) {
-        vehicleService.findById(vehicleId);
-        TelemetrySnapshotResponse snapshot = snapshots.get(vehicleId);
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        TelemetrySnapshotResponse snapshot = rawSnapshot(vehicle);
+        return maskSnapshot(vehicle.companyId(), snapshot);
+    }
+
+    private TelemetrySnapshotResponse rawSnapshot(VehicleResponse vehicle) {
+        TelemetrySnapshotResponse snapshot = snapshots.get(vehicle.id());
         if (snapshot != null) {
             return snapshot;
         }
 
-        VehicleResponse vehicle = vehicleService.findById(vehicleId);
         return new TelemetrySnapshotResponse(
-                vehicleId,
+                vehicle.id(),
                 vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(),
                 vehicle.temperatureState(),
                 "--",
@@ -66,7 +73,7 @@ public class TelemetryService {
     }
 
     public TelemetrySnapshotResponse updateSnapshot(UpdateTelemetrySnapshotRequest request) {
-        vehicleService.findById(request.vehicleId());
+        VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
         TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
                 request.vehicleId(),
                 request.temperature(),
@@ -84,11 +91,14 @@ public class TelemetryService {
         );
         snapshots.put(request.vehicleId(), snapshot);
         saveSnapshots();
-        return snapshot;
+        return maskSnapshot(vehicle.companyId(), snapshot);
     }
 
     public List<TemperaturePointResponse> temperatureHistory(Long vehicleId) {
-        vehicleService.findById(vehicleId);
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        if (!protocolConfigService.isFieldEnabled(vehicle.companyId(), "temperature")) {
+            return List.of();
+        }
         return history.getOrDefault(vehicleId, defaultHistory());
     }
 
@@ -153,8 +163,10 @@ public class TelemetryService {
     }
 
     public List<VehicleEventResponse> events(Long vehicleId) {
-        vehicleService.findById(vehicleId);
-        return events.getOrDefault(vehicleId, defaultEvents());
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        return events.getOrDefault(vehicleId, defaultEvents()).stream()
+                .filter(event -> protocolConfigService.isEventTypeEnabled(vehicle.companyId(), event.type()))
+                .toList();
     }
 
     public VehicleEventResponse addEvent(CreateVehicleEventRequest request) {
@@ -171,6 +183,33 @@ public class TelemetryService {
         events.put(request.vehicleId(), vehicleEvents);
         saveEvents();
         return event;
+    }
+
+    private TelemetrySnapshotResponse maskSnapshot(Long companyId, TelemetrySnapshotResponse snapshot) {
+        boolean temperature = protocolConfigService.isFieldEnabled(companyId, "temperature");
+        boolean humidity = protocolConfigService.isFieldEnabled(companyId, "humidity");
+        boolean door = protocolConfigService.isFieldEnabled(companyId, "doorState");
+        boolean cooling = protocolConfigService.isFieldEnabled(companyId, "coolingUnitState");
+        boolean fuel = protocolConfigService.isFieldEnabled(companyId, "fuelLevel");
+        boolean speed = protocolConfigService.isFieldEnabled(companyId, "speed");
+        boolean latitude = protocolConfigService.isFieldEnabled(companyId, "latitude");
+        boolean longitude = protocolConfigService.isFieldEnabled(companyId, "longitude");
+
+        return new TelemetrySnapshotResponse(
+                snapshot.vehicleId(),
+                temperature ? snapshot.temperature() : null,
+                temperature ? snapshot.temperatureState() : null,
+                humidity ? snapshot.humidity() : null,
+                door ? snapshot.doorState() : null,
+                cooling ? snapshot.coolingUnitState() : null,
+                fuel ? snapshot.fuelLevel() : null,
+                speed ? snapshot.speed() : null,
+                temperature ? snapshot.targetRange() : null,
+                latitude ? snapshot.latitude() : null,
+                longitude ? snapshot.longitude() : null,
+                latitude && longitude ? snapshot.address() : null,
+                snapshot.lastCommunication()
+        );
     }
 
     private void loadAll() {

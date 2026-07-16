@@ -7,6 +7,7 @@ import com.mt.friotrackapi.dashboard.dto.FeaturedVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.FleetMapVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.TemperatureDistributionResponse;
 import com.mt.friotrackapi.dashboard.dto.VehicleStatusResponse;
+import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
@@ -24,27 +25,32 @@ public class DashboardService {
     private final VehicleService vehicleService;
     private final AlertService alertService;
     private final TelemetryService telemetryService;
+    private final ProtocolConfigService protocolConfigService;
 
-    public DashboardService(VehicleService vehicleService, AlertService alertService, TelemetryService telemetryService) {
+    public DashboardService(VehicleService vehicleService, AlertService alertService, TelemetryService telemetryService, ProtocolConfigService protocolConfigService) {
         this.vehicleService = vehicleService;
         this.alertService = alertService;
         this.telemetryService = telemetryService;
+        this.protocolConfigService = protocolConfigService;
     }
 
     public DashboardSummaryResponse summary(Long companyId) {
         List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
         Counts counts = countStatuses(vehicles);
+        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
 
-        OptionalDouble average = vehicles.stream()
-                .map(VehicleResponse::currentTemperature)
-                .map(DashboardService::parseTemperature)
-                .filter(Double::isFinite)
-                .mapToDouble(Double::doubleValue)
-                .average();
+        OptionalDouble average = temperatureEnabled
+                ? vehicles.stream()
+                        .map(VehicleResponse::currentTemperature)
+                        .map(DashboardService::parseTemperature)
+                        .filter(Double::isFinite)
+                        .mapToDouble(Double::doubleValue)
+                        .average()
+                : OptionalDouble.empty();
 
         String averageTemperature = average.isPresent()
                 ? String.format(Locale.US, "%.1f °C", average.getAsDouble())
-                : "--";
+                : null;
 
         int total = vehicles.size();
         return new DashboardSummaryResponse(
@@ -58,11 +64,18 @@ public class DashboardService {
                 counts.offline(),
                 percent(counts.offline(), total),
                 averageTemperature,
-                average.isPresent() ? averageTemperatureState(average.getAsDouble()) : "Sin datos"
+                average.isPresent() ? averageTemperatureState(average.getAsDouble()) : null
         );
     }
 
     public List<FleetMapVehicleResponse> fleetMap(Long companyId) {
+        boolean latitudeEnabled = protocolConfigService.isFieldEnabled(companyId, "latitude");
+        boolean longitudeEnabled = protocolConfigService.isFieldEnabled(companyId, "longitude");
+        if (!latitudeEnabled || !longitudeEnabled) {
+            return List.of();
+        }
+
+        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
         List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
         MapCenter center = mapCenter(vehicles);
         return vehicles.stream()
@@ -77,29 +90,37 @@ public class DashboardService {
                         vehicle.status(),
                         statusLabel(vehicle.status()),
                         statusColor(vehicle.status()),
-                        vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()
+                        temperatureEnabled ? (vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()) : null
                 ))
                 .toList();
     }
 
     public List<VehicleStatusResponse> vehicleStatus(Long companyId) {
+        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
+        boolean doorEnabled = protocolConfigService.isFieldEnabled(companyId, "doorState");
+        boolean coolingEnabled = protocolConfigService.isFieldEnabled(companyId, "coolingUnitState");
+
         return vehicleService.findAll(companyId).stream()
                 .map(vehicle -> new VehicleStatusResponse(
                         vehicle.id(),
                         vehicle.label(),
                         statusLabel(vehicle.status()),
                         statusColorKey(vehicle.status()),
-                        vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(),
-                        vehicle.temperatureState(),
-                        statusColorKey(vehicle.temperatureState()),
-                        vehicle.doorState(),
-                        vehicle.coolingUnitState(),
+                        temperatureEnabled ? (vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature()) : null,
+                        temperatureEnabled ? vehicle.temperatureState() : null,
+                        temperatureEnabled ? statusColorKey(vehicle.temperatureState()) : null,
+                        doorEnabled ? vehicle.doorState() : null,
+                        coolingEnabled ? vehicle.coolingUnitState() : null,
                         vehicle.lastCommunication()
                 ))
                 .toList();
     }
 
     public TemperatureDistributionResponse temperatureDistribution(Long companyId) {
+        if (!protocolConfigService.isFieldEnabled(companyId, "temperature")) {
+            return new TemperatureDistributionResponse(0, 0, 0, 0, 0, 0, 0, 0, 0, null);
+        }
+
         Counts counts = countStatuses(vehicleService.findAll(companyId));
         int total = counts.total();
         return new TemperatureDistributionResponse(
