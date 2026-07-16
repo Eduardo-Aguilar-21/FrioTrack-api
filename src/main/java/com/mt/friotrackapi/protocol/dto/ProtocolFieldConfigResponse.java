@@ -13,6 +13,7 @@ public record ProtocolFieldConfigResponse(
         String alertMode,
         String alertActivationValue,
         Double alertMin,
-        Double alertMax
+        Double alertMax,
+        String alertIcon
 ) {
 }

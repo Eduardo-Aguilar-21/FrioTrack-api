@@ -100,7 +100,7 @@ public class MqttTelemetryIngestionService {
             String description = value > max
                     ? "Temperatura recibida por MQTT: " + data.temperature()
                     : "Temperatura recibida por MQTT debajo del limite: " + data.temperature();
-            alertService.recordMqttAlert(vehicle.companyId(), "TEMPERATURE", severity, title, description, vehicle.label(), vehicle.code());
+            alertService.recordMqttAlert(vehicle.companyId(), "TEMPERATURE", severity, title, description, vehicle.label(), vehicle.code(), field.alertIcon());
             telemetryService.recordMqttEvent(vehicle.id(), "TEMPERATURE", title + ": " + data.temperature(), "Fuera de rango", severity);
             return;
         }
@@ -116,7 +116,7 @@ public class MqttTelemetryIngestionService {
         }
 
         if (matchesActivation(data.doorState(), field.alertActivationValue())) {
-            alertService.recordMqttAlert(vehicle.companyId(), "DOOR", "WARNING", "Puerta abierta", "Estado recibido por MQTT: " + data.doorState(), vehicle.label(), vehicle.code());
+            alertService.recordMqttAlert(vehicle.companyId(), "DOOR", "WARNING", "Puerta abierta", "Estado recibido por MQTT: " + data.doorState(), vehicle.label(), vehicle.code(), field.alertIcon());
             telemetryService.recordMqttEvent(vehicle.id(), "DOOR", "Puerta abierta", "Estado recibido por MQTT", "WARNING");
             return;
         }
@@ -132,7 +132,7 @@ public class MqttTelemetryIngestionService {
         }
 
         if (matchesActivation(data.coolingUnitState(), field.alertActivationValue())) {
-            alertService.recordMqttAlert(vehicle.companyId(), "COOLING", "CRITICAL", "Equipo de frio apagado", "Estado recibido por MQTT: " + data.coolingUnitState(), vehicle.label(), vehicle.code());
+            alertService.recordMqttAlert(vehicle.companyId(), "COOLING", "CRITICAL", "Equipo de frio apagado", "Estado recibido por MQTT: " + data.coolingUnitState(), vehicle.label(), vehicle.code(), field.alertIcon());
             telemetryService.recordMqttEvent(vehicle.id(), "COOLING", "Equipo de frio apagado", "Estado recibido por MQTT", "CRITICAL");
             return;
         }
@@ -154,7 +154,7 @@ public class MqttTelemetryIngestionService {
             if (isTriggered(field, entry.getValue())) {
                 String title = field.label() + " fuera de condicion";
                 String description = "Valor recibido por MQTT: " + entry.getValue();
-                alertService.recordMqttAlert(vehicle.companyId(), type, "WARNING", title, description, vehicle.label(), vehicle.code());
+                alertService.recordMqttAlert(vehicle.companyId(), type, "WARNING", title, description, vehicle.label(), vehicle.code(), field.alertIcon());
                 telemetryService.recordMqttEvent(vehicle.id(), type, title, description, "WARNING");
             } else {
                 alertService.resolveMqttAlert(vehicle.companyId(), type, vehicle.code());

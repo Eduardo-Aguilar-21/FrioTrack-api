@@ -180,7 +180,8 @@ public class ProtocolConfigService {
                 alertMode,
                 alertActivationValue(field.alertActivationValue(), targetField, alertMode),
                 alertMin(field.alertMin(), targetField, alertMode),
-                alertMax(field.alertMax(), targetField, alertMode)
+                alertMax(field.alertMax(), targetField, alertMode),
+                alertIcon(field.alertIcon(), targetField)
         );
     }
 
@@ -228,6 +229,24 @@ public class ProtocolConfigService {
             case "doorState" -> "true";
             case "coolingUnitState" -> "false";
             default -> "true";
+        };
+    }
+
+    private String alertIcon(String value, String targetField) {
+        String cleanValue = cleanOptional(value);
+        if (!cleanValue.isBlank()) {
+            return cleanValue;
+        }
+        return switch (clean(targetField)) {
+            case "temperature" -> "fa-solid fa-temperature-half";
+            case "humidity" -> "fa-solid fa-droplet";
+            case "doorState" -> "fa-solid fa-door-open";
+            case "coolingUnitState" -> "fa-regular fa-snowflake";
+            case "fuelLevel" -> "fa-solid fa-gas-pump";
+            case "speed" -> "fa-solid fa-gauge-high";
+            case "battery" -> "fa-solid fa-battery-half";
+            case "latitude", "longitude" -> "fa-solid fa-location-dot";
+            default -> "fa-solid fa-triangle-exclamation";
         };
     }
 
@@ -373,15 +392,15 @@ public class ProtocolConfigService {
                 "vehiculo/{id}",
                 "",
                 List.of(
-                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0),
-                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "BOOLEAN", "", "false", "doorState", false, "ACTIVATION", "true", null, null),
-                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "BOOLEAN", "", "true", "coolingUnitState", false, "ACTIVATION", "false", null, null),
-                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false, "NONE", "", null, null)
+                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0, "fa-solid fa-temperature-half"),
+                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null, "fa-solid fa-droplet"),
+                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "BOOLEAN", "", "false", "doorState", false, "ACTIVATION", "true", null, null, "fa-solid fa-door-open"),
+                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "BOOLEAN", "", "true", "coolingUnitState", false, "ACTIVATION", "false", null, null, "fa-regular fa-snowflake"),
+                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false, "NONE", "", null, null, "fa-solid fa-gas-pump"),
+                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false, "NONE", "", null, null, "fa-solid fa-gauge-high"),
+                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false, "NONE", "", null, null, "fa-solid fa-location-dot"),
+                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false, "NONE", "", null, null, "fa-solid fa-location-dot"),
+                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false, "NONE", "", null, null, "fa-solid fa-battery-half")
                 ),
                 defaultTemperatureRules()
         );

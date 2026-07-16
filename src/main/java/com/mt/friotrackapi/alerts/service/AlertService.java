@@ -120,7 +120,8 @@ public class AlertService {
                 alert.vehicleCode(),
                 alert.occurredAtLabel(),
                 status,
-                alert.duration()
+                alert.duration(),
+                iconOrDefault(alert.icon(), alert.type())
         );
         alerts.set(alerts.indexOf(alert), updated);
         saveAlerts();
@@ -128,6 +129,10 @@ public class AlertService {
     }
 
     public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
+        return recordMqttAlert(companyId, type, severity, title, description, vehicleLabel, vehicleCode, null);
+    }
+
+    public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode, String icon) {
         AlertResponse existing = alerts.stream()
                 .filter(alert -> alert.companyId().equals(companyId))
                 .filter(alert -> alert.type().equalsIgnoreCase(type))
@@ -147,7 +152,8 @@ public class AlertService {
                 vehicleCode,
                 "Ahora",
                 "Activa",
-                existing == null ? "0 min" : existing.duration()
+                existing == null ? "0 min" : existing.duration(),
+                iconOrDefault(icon == null && existing != null ? existing.icon() : icon, type)
         );
 
         if (existing == null) {
@@ -179,7 +185,8 @@ public class AlertService {
                         alert.vehicleCode(),
                         alert.occurredAtLabel(),
                         "Resuelta",
-                        alert.duration()
+                        alert.duration(),
+                        iconOrDefault(alert.icon(), alert.type())
                 ));
                 changed = true;
             }
@@ -188,6 +195,22 @@ public class AlertService {
         if (changed) {
             saveAlerts();
         }
+    }
+
+    private String iconOrDefault(String icon, String type) {
+        if (icon != null && !icon.isBlank()) {
+            return icon;
+        }
+        String normalizedType = type == null ? "" : type.toUpperCase(java.util.Locale.ROOT);
+        if (normalizedType.contains("DOOR")) return "fa-solid fa-door-open";
+        if (normalizedType.contains("COOL")) return "fa-regular fa-snowflake";
+        if (normalizedType.contains("NETWORK") || normalizedType.contains("OFFLINE")) return "fa-solid fa-wifi";
+        if (normalizedType.contains("SENSOR")) return "fa-solid fa-circle-info";
+        if (normalizedType.contains("FUEL")) return "fa-solid fa-gas-pump";
+        if (normalizedType.contains("SPEED")) return "fa-solid fa-gauge-high";
+        if (normalizedType.contains("HUMIDITY")) return "fa-solid fa-droplet";
+        if (normalizedType.contains("BATTERY")) return "fa-solid fa-battery-half";
+        return "fa-solid fa-temperature-half";
     }
 
     private Long nextId() {
@@ -237,14 +260,14 @@ public class AlertService {
 
     private List<AlertResponse> defaultAlerts() {
         return List.of(
-                new AlertResponse(1L, 1L, "TEMPERATURE", "CRITICAL", "Temperatura alta", "La temperatura supero el limite permitido", "Camion 12 - ABC123", "ABC123", "Hoy, 10:32", "Activa", "25 min"),
-                new AlertResponse(2L, 1L, "DOOR", "WARNING", "Puerta abierta", "Puerta del compartimiento abierta", "Camion 07 - DEF456", "DEF456", "Hoy, 10:30", "Activa", "15 min"),
-                new AlertResponse(3L, 1L, "COOLING", "CRITICAL", "Equipo de frio apagado", "El equipo de frio no esta funcionando", "Camion 03 - GHI789", "GHI789", "Hoy, 10:28", "Activa", "32 min"),
-                new AlertResponse(4L, 1L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion 02 - BBB222", "BBB222", "Hoy, 09:45", "Activa", "1 h 10 min"),
-                new AlertResponse(5L, 1L, "NETWORK", "OFFLINE", "Sin comunicacion", "Sin datos del vehiculo", "Camion 21 - MNO321", "MNO321", "Hoy, 09:20", "Activa", "2 h 45 min"),
-                new AlertResponse(6L, 1L, "SENSOR", "INFO", "Sensor reconectado", "Sensor de temperatura reconectado", "Camion 15 - JKL456", "JKL456", "Hoy, 08:50", "Informativa", "--"),
-                new AlertResponse(7L, 1L, "DOOR", "WARNING", "Puerta entreabierta", "La puerta estuvo entreabierta", "Camion 08 - PQR678", "PQR678", "Hoy, 08:15", "Resuelta", "5 min"),
-                new AlertResponse(8L, 2L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion Norte 01 - NOR111", "NOR111", "Hoy, 09:00", "Activa", "40 min")
+                new AlertResponse(1L, 1L, "TEMPERATURE", "CRITICAL", "Temperatura alta", "La temperatura supero el limite permitido", "Camion 12 - ABC123", "ABC123", "Hoy, 10:32", "Activa", "25 min", "fa-solid fa-temperature-half"),
+                new AlertResponse(2L, 1L, "DOOR", "WARNING", "Puerta abierta", "Puerta del compartimiento abierta", "Camion 07 - DEF456", "DEF456", "Hoy, 10:30", "Activa", "15 min", "fa-solid fa-door-open"),
+                new AlertResponse(3L, 1L, "COOLING", "CRITICAL", "Equipo de frio apagado", "El equipo de frio no esta funcionando", "Camion 03 - GHI789", "GHI789", "Hoy, 10:28", "Activa", "32 min", "fa-regular fa-snowflake"),
+                new AlertResponse(4L, 1L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion 02 - BBB222", "BBB222", "Hoy, 09:45", "Activa", "1 h 10 min", "fa-solid fa-temperature-half"),
+                new AlertResponse(5L, 1L, "NETWORK", "OFFLINE", "Sin comunicacion", "Sin datos del vehiculo", "Camion 21 - MNO321", "MNO321", "Hoy, 09:20", "Activa", "2 h 45 min", "fa-solid fa-wifi"),
+                new AlertResponse(6L, 1L, "SENSOR", "INFO", "Sensor reconectado", "Sensor de temperatura reconectado", "Camion 15 - JKL456", "JKL456", "Hoy, 08:50", "Informativa", "--", "fa-solid fa-circle-info"),
+                new AlertResponse(7L, 1L, "DOOR", "WARNING", "Puerta entreabierta", "La puerta estuvo entreabierta", "Camion 08 - PQR678", "PQR678", "Hoy, 08:15", "Resuelta", "5 min", "fa-solid fa-door-open"),
+                new AlertResponse(8L, 2L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion Norte 01 - NOR111", "NOR111", "Hoy, 09:00", "Activa", "40 min", "fa-solid fa-temperature-half")
         );
     }
 }

@@ -26,9 +26,9 @@ class ProtocolPayloadMapperTest {
                 "vehiculo/12",
                 "",
                 List.of(
-                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0),
-                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("battery", "Bateria", true, "bateria", "NUMBER", "%", "88", "battery", false, "NONE", "", null, null)
+                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0, "fa-solid fa-temperature-half"),
+                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null, "fa-solid fa-droplet"),
+                        new ProtocolFieldConfigResponse("battery", "Bateria", true, "bateria", "NUMBER", "%", "88", "battery", false, "NONE", "", null, null, "fa-solid fa-battery-half")
                 ),
                 new TemperatureRulesResponse(-2.0, 5.0, -5.0, 8.0),
                 Map.of()

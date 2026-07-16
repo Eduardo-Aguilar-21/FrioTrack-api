@@ -11,6 +11,7 @@ public record AlertResponse(
         String vehicleCode,
         String occurredAtLabel,
         String status,
-        String duration
+        String duration,
+        String icon
 ) {
 }
