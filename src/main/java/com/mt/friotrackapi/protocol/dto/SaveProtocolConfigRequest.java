@@ -11,6 +11,7 @@ public record SaveProtocolConfigRequest(
         @NotBlank String brokerName,
         @NotBlank String topicPattern,
         String payloadRoot,
-        @Valid List<ProtocolFieldConfigResponse> fields
+        @Valid List<ProtocolFieldConfigResponse> fields,
+        TemperatureRulesResponse temperatureRules
 ) {
 }

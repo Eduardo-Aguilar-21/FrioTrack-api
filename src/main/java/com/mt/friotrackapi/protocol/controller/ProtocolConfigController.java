@@ -36,7 +36,8 @@ public class ProtocolConfigController {
                 request.brokerName(),
                 request.topicPattern(),
                 request.payloadRoot(),
-                request.fields()
+                request.fields(),
+                request.temperatureRules()
         );
         return ApiResponse.ok("Configuracion de protocolo actualizada", protocolConfigService.save(scoped));
     }

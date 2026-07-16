@@ -10,6 +10,7 @@ public record ProtocolConfigResponse(
         String topicExample,
         String payloadRoot,
         List<ProtocolFieldConfigResponse> fields,
+        TemperatureRulesResponse temperatureRules,
         Map<String, Object> previewPayload
 ) {
 }

@@ -8,6 +8,7 @@ import com.mt.friotrackapi.dashboard.dto.FleetMapVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.TemperatureDistributionResponse;
 import com.mt.friotrackapi.dashboard.dto.VehicleStatusResponse;
 import com.mt.friotrackapi.common.exception.ForbiddenException;
+import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
@@ -20,8 +21,6 @@ import java.util.OptionalDouble;
 
 @Service
 public class DashboardService {
-
-    private static final String TARGET_RANGE = "-2 °C a 5 °C";
 
     private final VehicleService vehicleService;
     private final AlertService alertService;
@@ -65,7 +64,7 @@ public class DashboardService {
                 counts.offline(),
                 percent(counts.offline(), total),
                 averageTemperature,
-                average.isPresent() ? averageTemperatureState(average.getAsDouble()) : null
+                average.isPresent() ? averageTemperatureState(companyId, average.getAsDouble()) : null
         );
     }
 
@@ -134,7 +133,7 @@ public class DashboardService {
                 percent(counts.outOfRange(), total),
                 counts.offline(),
                 percent(counts.offline(), total),
-                TARGET_RANGE
+                protocolConfigService.targetRangeLabel(companyId)
         );
     }
 
@@ -223,8 +222,9 @@ public class DashboardService {
         return total == 0 ? 0 : Math.round((value * 100.0f) / total);
     }
 
-    private static String averageTemperatureState(double average) {
-        if (average < -2 || average > 5) {
+    private String averageTemperatureState(Long companyId, double average) {
+        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(companyId);
+        if (average < rules.minAllowed() || average > rules.maxAllowed()) {
             return "fuera de rango";
         }
         return "en rango";

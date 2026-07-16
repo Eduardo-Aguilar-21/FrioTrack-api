@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
 import com.mt.friotrackapi.protocol.dto.ProtocolConfigResponse;
 import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
+import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import org.springframework.stereotype.Service;
 
@@ -15,8 +16,6 @@ import java.util.Locale;
 @Service
 public class ProtocolPayloadMapper {
 
-    private static final double MIN_TEMPERATURE = -2.0;
-    private static final double MAX_TEMPERATURE = 5.0;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ProtocolConfigService protocolConfigService;
 
@@ -39,6 +38,8 @@ public class ProtocolPayloadMapper {
         Double latitude = null;
         Double longitude = null;
 
+        TemperatureRulesResponse rules = config.temperatureRules();
+
         try {
             JsonNode root = objectMapper.readTree(payload);
             JsonNode source = sourceRoot(root, config.payloadRoot(), errors);
@@ -59,7 +60,7 @@ public class ProtocolPayloadMapper {
                         case "temperature" -> {
                             temperatureValue = asDouble(node, field);
                             temperature = formatNumber(temperatureValue) + " °C";
-                            temperatureState = temperatureState(temperatureValue);
+                            temperatureState = temperatureState(temperatureValue, rules);
                         }
                         case "humidity" -> humidity = formatWithUnit(asDouble(node, field), field.unit());
                         case "doorState" -> doorState = asText(node);
@@ -151,11 +152,11 @@ public class ProtocolPayloadMapper {
         return String.format(Locale.US, "%.1f", value);
     }
 
-    private String temperatureState(Double value) {
+    private String temperatureState(Double value, TemperatureRulesResponse rules) {
         if (value == null) {
             return "Sin datos";
         }
-        return value >= MIN_TEMPERATURE && value <= MAX_TEMPERATURE ? "En rango" : "Fuera de rango";
+        return value >= rules.minAllowed() && value <= rules.maxAllowed() ? "En rango" : "Fuera de rango";
     }
 
     private boolean isBlank(String value) {

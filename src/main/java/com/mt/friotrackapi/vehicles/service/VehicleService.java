@@ -7,6 +7,8 @@ import com.mt.friotrackapi.companies.service.CompanyService;
 import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.persistence.service.JsonStoreService;
+import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
+import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -21,11 +23,13 @@ public class VehicleService {
     private final CompanyService companyService;
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "vehicles.json");
     private final JsonStoreService jsonStoreService;
+    private final ProtocolConfigService protocolConfigService;
     private final List<VehicleResponse> vehicles = new ArrayList<>();
 
-    public VehicleService(CompanyService companyService, JsonStoreService jsonStoreService) {
+    public VehicleService(CompanyService companyService, JsonStoreService jsonStoreService, ProtocolConfigService protocolConfigService) {
         this.companyService = companyService;
         this.jsonStoreService = jsonStoreService;
+        this.protocolConfigService = protocolConfigService;
         loadVehicles();
     }
 
@@ -133,7 +137,7 @@ public class VehicleService {
             String lastCommunication
     ) {
         VehicleResponse current = findById(id);
-        String nextStatus = vehicleStatus(currentTemperature, temperatureState, current.status());
+        String nextStatus = vehicleStatus(current.companyId(), currentTemperature, temperatureState, current.status());
         VehicleResponse updated = new VehicleResponse(
                 current.id(),
                 current.companyId(),
@@ -160,7 +164,7 @@ public class VehicleService {
         return updated;
     }
 
-    private String vehicleStatus(String currentTemperature, String temperatureState, String currentStatus) {
+    private String vehicleStatus(Long companyId, String currentTemperature, String temperatureState, String currentStatus) {
         if (currentTemperature == null || currentTemperature.isBlank()) {
             return currentStatus;
         }
@@ -168,7 +172,8 @@ public class VehicleService {
         if (value == null) {
             return currentStatus;
         }
-        if (value > 8 || value < -5) {
+        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(companyId);
+        if (value > rules.criticalHigh() || value < rules.criticalLow()) {
             return "CRITICO";
         }
         if (temperatureState != null && temperatureState.equalsIgnoreCase("Fuera de rango")) {

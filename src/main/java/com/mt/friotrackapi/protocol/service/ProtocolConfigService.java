@@ -8,6 +8,7 @@ import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import com.mt.friotrackapi.protocol.dto.ProtocolConfigResponse;
 import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
 import com.mt.friotrackapi.protocol.dto.SaveProtocolConfigRequest;
+import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -38,6 +39,39 @@ public class ProtocolConfigService {
         return toResponse(config);
     }
 
+
+    public TemperatureRulesResponse temperatureRules(Long companyId) {
+        return findByCompany(companyId).temperatureRules();
+    }
+
+    public String targetRangeLabel(Long companyId) {
+        TemperatureRulesResponse rules = temperatureRules(companyId);
+        return formatRuleNumber(rules.minAllowed()) + " °C a " + formatRuleNumber(rules.maxAllowed()) + " °C";
+    }
+
+    private TemperatureRulesResponse rulesOrDefault(TemperatureRulesResponse rules) {
+        TemperatureRulesResponse defaults = defaultTemperatureRules();
+        if (rules == null) {
+            return defaults;
+        }
+        return new TemperatureRulesResponse(
+                rules.minAllowed() == null ? defaults.minAllowed() : rules.minAllowed(),
+                rules.maxAllowed() == null ? defaults.maxAllowed() : rules.maxAllowed(),
+                rules.criticalLow() == null ? defaults.criticalLow() : rules.criticalLow(),
+                rules.criticalHigh() == null ? defaults.criticalHigh() : rules.criticalHigh()
+        );
+    }
+
+    private TemperatureRulesResponse defaultTemperatureRules() {
+        return new TemperatureRulesResponse(-2.0, 5.0, -5.0, 8.0);
+    }
+
+    private String formatRuleNumber(Double value) {
+        if (value == null) {
+            return "--";
+        }
+        return Math.floor(value) == value ? String.format(java.util.Locale.US, "%.0f", value) : String.format(java.util.Locale.US, "%.1f", value);
+    }
 
     public boolean isFieldEnabled(Long companyId, String targetField) {
         if (targetField == null || targetField.isBlank()) {
@@ -80,7 +114,8 @@ public class ProtocolConfigService {
                 clean(request.brokerName()),
                 clean(request.topicPattern()),
                 cleanOptional(request.payloadRoot()),
-                request.fields() == null ? List.of() : request.fields().stream().map(this::normalizeField).toList()
+                request.fields() == null ? List.of() : request.fields().stream().map(this::normalizeField).toList(),
+                rulesOrDefault(request.temperatureRules())
         );
         configs.put(request.companyId(), config);
         saveConfigs();
@@ -95,6 +130,7 @@ public class ProtocolConfigService {
                 topicExample(config.topicPattern()),
                 config.payloadRoot(),
                 config.fields(),
+                rulesOrDefault(config.temperatureRules()),
                 previewPayload(config.payloadRoot(), config.fields())
         );
     }
@@ -203,7 +239,8 @@ public class ProtocolConfigService {
                         new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude"),
                         new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude"),
                         new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery")
-                )
+                ),
+                defaultTemperatureRules()
         );
     }
 
@@ -252,7 +289,8 @@ public class ProtocolConfigService {
             String brokerName,
             String topicPattern,
             String payloadRoot,
-            List<ProtocolFieldConfigResponse> fields
+            List<ProtocolFieldConfigResponse> fields,
+            TemperatureRulesResponse temperatureRules
     ) {
     }
 }

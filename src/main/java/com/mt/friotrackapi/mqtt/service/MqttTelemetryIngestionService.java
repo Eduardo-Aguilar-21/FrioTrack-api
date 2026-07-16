@@ -3,6 +3,8 @@ package com.mt.friotrackapi.mqtt.service;
 import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
+import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
+import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
@@ -11,26 +13,24 @@ import org.springframework.stereotype.Service;
 @Service
 public class MqttTelemetryIngestionService {
 
-    private static final double MIN_TEMPERATURE = -2.0;
-    private static final double MAX_TEMPERATURE = 5.0;
-    private static final double CRITICAL_HIGH_TEMPERATURE = 8.0;
-    private static final double CRITICAL_LOW_TEMPERATURE = -5.0;
-
     private final VehicleService vehicleService;
     private final ProtocolPayloadMapper protocolPayloadMapper;
     private final TelemetryService telemetryService;
     private final AlertService alertService;
+    private final ProtocolConfigService protocolConfigService;
 
     public MqttTelemetryIngestionService(
             VehicleService vehicleService,
             ProtocolPayloadMapper protocolPayloadMapper,
             TelemetryService telemetryService,
-            AlertService alertService
+            AlertService alertService,
+            ProtocolConfigService protocolConfigService
     ) {
         this.vehicleService = vehicleService;
         this.protocolPayloadMapper = protocolPayloadMapper;
         this.telemetryService = telemetryService;
         this.alertService = alertService;
+        this.protocolConfigService = protocolConfigService;
     }
 
     public void ingest(String topic, String payload) {
@@ -79,10 +79,11 @@ public class MqttTelemetryIngestionService {
         }
 
         double value = data.temperatureValue();
-        if (value > MAX_TEMPERATURE || value < MIN_TEMPERATURE) {
-            String severity = value > CRITICAL_HIGH_TEMPERATURE || value < CRITICAL_LOW_TEMPERATURE ? "CRITICAL" : "WARNING";
-            String title = value > MAX_TEMPERATURE ? "Temperatura alta" : "Temperatura baja";
-            String description = value > MAX_TEMPERATURE
+        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(vehicle.companyId());
+        if (value > rules.maxAllowed() || value < rules.minAllowed()) {
+            String severity = value > rules.criticalHigh() || value < rules.criticalLow() ? "CRITICAL" : "WARNING";
+            String title = value > rules.maxAllowed() ? "Temperatura alta" : "Temperatura baja";
+            String description = value > rules.maxAllowed()
                     ? "Temperatura recibida por MQTT: " + data.temperature()
                     : "Temperatura recibida por MQTT debajo del limite: " + data.temperature();
             alertService.recordMqttAlert(vehicle.companyId(), "TEMPERATURE", severity, title, description, vehicle.label(), vehicle.code());
