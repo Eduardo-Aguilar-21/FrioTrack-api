@@ -7,6 +7,7 @@ import com.mt.friotrackapi.dashboard.dto.FeaturedVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.FleetMapVehicleResponse;
 import com.mt.friotrackapi.dashboard.dto.TemperatureDistributionResponse;
 import com.mt.friotrackapi.dashboard.dto.VehicleStatusResponse;
+import com.mt.friotrackapi.common.exception.ForbiddenException;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
@@ -152,6 +153,10 @@ public class DashboardService {
                                 .findFirst()
                                 .orElseThrow(() -> new com.mt.friotrackapi.common.exception.ApiException("No hay vehiculos para la empresa")))
                 : vehicleService.findById(vehicleId);
+
+        if (!vehicle.companyId().equals(companyId)) {
+            throw new ForbiddenException("No tienes acceso a este vehiculo");
+        }
 
         return new FeaturedVehicleResponse(vehicle, telemetryService.snapshot(vehicle.id()));
     }

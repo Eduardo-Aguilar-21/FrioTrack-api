@@ -1,5 +1,6 @@
 package com.mt.friotrackapi.users.controller;
 
+import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
 import com.mt.friotrackapi.users.dto.CreateUserRequest;
 import com.mt.friotrackapi.users.dto.UserResponse;
@@ -11,7 +12,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -21,30 +21,35 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final TenantAccessService tenantAccessService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, TenantAccessService tenantAccessService) {
         this.userService = userService;
+        this.tenantAccessService = tenantAccessService;
     }
 
     @GetMapping
-    public ApiResponse<List<UserResponse>> findAll(@RequestParam(required = false) Long companyId) {
-        return ApiResponse.ok(userService.findAll(companyId));
+    public ApiResponse<List<UserResponse>> findAll() {
+        return ApiResponse.ok(userService.findAll(tenantAccessService.companyId()));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<UserResponse> findById(@PathVariable Long id) {
-        return ApiResponse.ok(userService.findById(id));
+        UserResponse user = userService.findById(id);
+        tenantAccessService.requireCompany(user.companyId());
+        return ApiResponse.ok(user);
     }
 
     @PostMapping
     public ApiResponse<UserResponse> create(@Valid @RequestBody CreateUserRequest request) {
-        return ApiResponse.ok("Usuario creado", userService.create(request));
+        CreateUserRequest scoped = new CreateUserRequest(tenantAccessService.companyId(), request.username(), request.name(), request.email(), request.password(), request.roleId());
+        return ApiResponse.ok("Usuario creado", userService.create(scoped));
     }
-
 
     @PutMapping("/{id}")
     public ApiResponse<UserResponse> update(@PathVariable Long id, @Valid @RequestBody CreateUserRequest request) {
-        return ApiResponse.ok("Usuario actualizado", userService.update(id, request));
+        tenantAccessService.requireCompany(userService.findById(id).companyId());
+        CreateUserRequest scoped = new CreateUserRequest(tenantAccessService.companyId(), request.username(), request.name(), request.email(), request.password(), request.roleId());
+        return ApiResponse.ok("Usuario actualizado", userService.update(id, scoped));
     }
-
 }

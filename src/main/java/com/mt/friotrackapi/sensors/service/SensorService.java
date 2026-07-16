@@ -42,6 +42,13 @@ public class SensorService {
                 .toList();
     }
 
+    public SensorResponse findById(Long id) {
+        return sensors.stream()
+                .filter(sensor -> sensor.id().equals(id))
+                .findFirst()
+                .orElseThrow(() -> new ApiException("Sensor no encontrado"));
+    }
+
     public SensorResponse create(CreateSensorRequest request) {
         companyService.findById(request.companyId());
         VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
@@ -73,10 +80,7 @@ public class SensorService {
 
 
     public SensorResponse update(Long id, CreateSensorRequest request) {
-        SensorResponse current = sensors.stream()
-                .filter(sensor -> sensor.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Sensor no encontrado"));
+        SensorResponse current = findById(id);
         companyService.findById(request.companyId());
         VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
         if (!vehicle.companyId().equals(request.companyId())) {

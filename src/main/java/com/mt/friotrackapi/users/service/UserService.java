@@ -10,6 +10,7 @@ import com.mt.friotrackapi.roles.dto.RoleResponse;
 import com.mt.friotrackapi.roles.service.RoleService;
 import com.mt.friotrackapi.users.dto.CreateUserRequest;
 import com.mt.friotrackapi.users.dto.UserResponse;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -23,13 +24,15 @@ public class UserService {
 
     private final RoleService roleService;
     private final CompanyService companyService;
+    private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "users.json");
     private final List<UserAccount> users = new ArrayList<>();
 
-    public UserService(RoleService roleService, CompanyService companyService) {
+    public UserService(RoleService roleService, CompanyService companyService, PasswordEncoder passwordEncoder) {
         this.roleService = roleService;
         this.companyService = companyService;
+        this.passwordEncoder = passwordEncoder;
         loadUsers();
     }
 
@@ -55,10 +58,17 @@ public class UserService {
 
     public UserResponse authenticate(String access, String password) {
         UserAccount account = findAccountByUsernameOrEmail(access);
-        if (!account.password().equals(password)) {
-            throw new AuthException("Credenciales invalidas");
+
+        if (isPasswordHash(account.password()) && passwordEncoder.matches(password, account.password())) {
+            return account.toResponse();
         }
-        return account.toResponse();
+
+        if (!isPasswordHash(account.password()) && account.password().equals(password)) {
+            migratePasswordHash(account);
+            return account.toResponse();
+        }
+
+        throw new AuthException("Credenciales invalidas");
     }
 
     public UserResponse demoAdmin() {
@@ -88,7 +98,7 @@ public class UserService {
                 request.username(),
                 request.name(),
                 request.email(),
-                request.password(),
+                passwordEncoder.encode(request.password()),
                 role.name(),
                 "ACTIVE"
         );
@@ -115,7 +125,7 @@ public class UserService {
 
         String password = request.password() == null || request.password().isBlank()
                 ? current.password()
-                : request.password();
+                : passwordEncoder.encode(request.password());
 
         UserAccount updated = new UserAccount(
                 current.id(),
@@ -162,10 +172,10 @@ public class UserService {
 
     private List<UserAccount> defaultUsers() {
         return List.of(
-                new UserAccount(1L, 1L, "FrioTrack Demo", "admin", "Administrador", "admin@friotrack.pe", "secret123", "ADMIN", "ACTIVE"),
-                new UserAccount(2L, 1L, "FrioTrack Demo", "operador", "Operador Lima", "operador@friotrack.pe", "secret123", "OPERADOR", "ACTIVE"),
-                new UserAccount(3L, 1L, "FrioTrack Demo", "supervisor", "Supervisor", "supervisor@friotrack.pe", "secret123", "LECTOR", "ACTIVE"),
-                new UserAccount(4L, 2L, "Cadena Fria Norte", "admin-norte", "Administrador Norte", "admin@norte.pe", "secret123", "ADMIN", "ACTIVE")
+                new UserAccount(1L, 1L, "FrioTrack Demo", "admin", "Administrador", "admin@friotrack.pe", passwordEncoder.encode("secret123"), "ADMIN", "ACTIVE"),
+                new UserAccount(2L, 1L, "FrioTrack Demo", "operador", "Operador Lima", "operador@friotrack.pe", passwordEncoder.encode("secret123"), "OPERADOR", "ACTIVE"),
+                new UserAccount(3L, 1L, "FrioTrack Demo", "supervisor", "Supervisor", "supervisor@friotrack.pe", passwordEncoder.encode("secret123"), "LECTOR", "ACTIVE"),
+                new UserAccount(4L, 2L, "Cadena Fria Norte", "admin-norte", "Administrador Norte", "admin@norte.pe", passwordEncoder.encode("secret123"), "ADMIN", "ACTIVE")
         );
     }
 
@@ -181,6 +191,26 @@ public class UserService {
                 .filter(user -> user.username().equalsIgnoreCase(access) || user.email().equalsIgnoreCase(access))
                 .findFirst()
                 .orElseThrow(() -> new ApiException("Usuario no encontrado"));
+    }
+
+    private boolean isPasswordHash(String password) {
+        return password != null && (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$"));
+    }
+
+    private void migratePasswordHash(UserAccount account) {
+        UserAccount updated = new UserAccount(
+                account.id(),
+                account.companyId(),
+                account.companyName(),
+                account.username(),
+                account.name(),
+                account.email(),
+                passwordEncoder.encode(account.password()),
+                account.role(),
+                account.status()
+        );
+        users.set(users.indexOf(account), updated);
+        saveUsers();
     }
 
     public record UserAccount(
