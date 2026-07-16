@@ -165,15 +165,16 @@ public class ProtocolConfigService {
 
     private ProtocolFieldConfigResponse normalizeField(ProtocolFieldConfigResponse field) {
         String targetField = clean(field.targetField());
-        String alertMode = normalizeAlertMode(field.alertMode(), targetField);
+        String dataType = normalizeDataType(field.dataType(), targetField);
+        String alertMode = normalizeAlertMode(field.alertMode(), targetField, dataType);
         return new ProtocolFieldConfigResponse(
                 clean(field.key()),
                 clean(field.label()),
                 field.enabled(),
                 clean(field.jsonPath()),
-                normalizeDataType(field.dataType()),
+                dataType,
                 cleanOptional(field.unit()),
-                cleanOptional(field.sampleValue()),
+                sampleValue(field.sampleValue(), targetField, dataType),
                 targetField,
                 field.required() == null ? defaultRequired(targetField) : field.required(),
                 alertMode,
@@ -194,13 +195,22 @@ public class ProtocolConfigService {
         return new TemperatureRulesResponse(min, max, min - 3.0, max + 3.0);
     }
 
-    private String normalizeAlertMode(String alertMode, String targetField) {
+    private String normalizeAlertMode(String alertMode, String targetField, String dataType) {
         String normalized = clean(alertMode).toUpperCase(java.util.Locale.ROOT);
-        if (normalized.equals("ACTIVATION") || normalized.equals("RANGE") || normalized.equals("NONE")) {
+        if ("NUMBER".equalsIgnoreCase(dataType)) {
+            return normalized.equals("RANGE") ? "RANGE" : "NONE";
+        }
+        if ("BOOLEAN".equalsIgnoreCase(dataType)) {
+            return normalized.equals("ACTIVATION") ? "ACTIVATION" : defaultBooleanAlertMode(targetField);
+        }
+        if (normalized.equals("ACTIVATION") || normalized.equals("NONE")) {
             return normalized;
         }
+        return "NONE";
+    }
+
+    private String defaultBooleanAlertMode(String targetField) {
         return switch (clean(targetField)) {
-            case "temperature" -> "RANGE";
             case "doorState", "coolingUnitState" -> "ACTIVATION";
             default -> "NONE";
         };
@@ -212,13 +222,48 @@ public class ProtocolConfigService {
         }
         String cleanValue = cleanOptional(value);
         if (!cleanValue.isBlank()) {
-            return cleanValue;
+            return normalizeActivationValue(cleanValue, targetField);
         }
         return switch (clean(targetField)) {
-            case "doorState" -> "Abierta";
-            case "coolingUnitState" -> "Apagado";
+            case "doorState" -> "true";
+            case "coolingUnitState" -> "false";
             default -> "true";
         };
+    }
+
+    private String normalizeActivationValue(String value, String targetField) {
+        String normalized = clean(value).toLowerCase(java.util.Locale.ROOT);
+        if ("doorState".equalsIgnoreCase(clean(targetField))) {
+            if (normalized.equals("abierta") || normalized.equals("open") || normalized.equals("1")) {
+                return "true";
+            }
+            if (normalized.equals("cerrada") || normalized.equals("closed") || normalized.equals("0")) {
+                return "false";
+            }
+        }
+        if ("coolingUnitState".equalsIgnoreCase(clean(targetField))) {
+            if (normalized.equals("encendido") || normalized.equals("on") || normalized.equals("1")) {
+                return "true";
+            }
+            if (normalized.equals("apagado") || normalized.equals("off") || normalized.equals("0")) {
+                return "false";
+            }
+        }
+        if (normalized.equals("1")) {
+            return "true";
+        }
+        if (normalized.equals("0")) {
+            return "false";
+        }
+        return value;
+    }
+
+    private String sampleValue(String value, String targetField, String dataType) {
+        String cleanValue = cleanOptional(value);
+        if (!"BOOLEAN".equalsIgnoreCase(dataType)) {
+            return cleanValue;
+        }
+        return normalizeActivationValue(cleanValue, targetField);
     }
 
     private Double alertMin(Double value, String targetField, String alertMode) {
@@ -290,9 +335,14 @@ public class ProtocolConfigService {
         String value = rawValue == null ? "" : rawValue.trim();
         return switch (normalizeDataType(dataType)) {
             case "NUMBER" -> parseNumber(value);
-            case "BOOLEAN" -> Boolean.parseBoolean(value);
+            case "BOOLEAN" -> parseBoolean(value);
             default -> value;
         };
+    }
+
+    private Boolean parseBoolean(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("true") || normalized.equals("1") || normalized.equals("abierta") || normalized.equals("encendido");
     }
 
     private Object parseNumber(String value) {
@@ -325,8 +375,8 @@ public class ProtocolConfigService {
                 List.of(
                         new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0),
                         new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null),
-                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "STRING", "", "Cerrada", "doorState", false, "ACTIVATION", "Abierta", null, null),
-                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "STRING", "", "Encendido", "coolingUnitState", false, "ACTIVATION", "Apagado", null, null),
+                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "BOOLEAN", "", "false", "doorState", false, "ACTIVATION", "true", null, null),
+                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "BOOLEAN", "", "true", "coolingUnitState", false, "ACTIVATION", "false", null, null),
                         new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false, "NONE", "", null, null),
                         new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false, "NONE", "", null, null),
                         new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false, "NONE", "", null, null),
@@ -374,6 +424,13 @@ public class ProtocolConfigService {
     }
 
     private String normalizeDataType(String dataType) {
+        return normalizeDataType(dataType, "");
+    }
+
+    private String normalizeDataType(String dataType, String targetField) {
+        if ("doorState".equalsIgnoreCase(clean(targetField)) || "coolingUnitState".equalsIgnoreCase(clean(targetField))) {
+            return "BOOLEAN";
+        }
         String normalized = clean(dataType).toUpperCase();
         return switch (normalized) {
             case "NUMBER", "BOOLEAN", "STRING" -> normalized;

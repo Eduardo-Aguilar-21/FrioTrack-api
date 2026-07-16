@@ -68,8 +68,8 @@ public class ProtocolPayloadMapper {
                             temperatureState = temperatureState(temperatureValue, rules);
                         }
                         case "humidity" -> humidity = formatWithUnit(asDouble(node, field), field.unit());
-                        case "doorState" -> doorState = asText(node);
-                        case "coolingUnitState" -> coolingUnitState = asText(node);
+                        case "doorState" -> doorState = doorState(node, field);
+                        case "coolingUnitState" -> coolingUnitState = coolingUnitState(node, field);
                         case "fuelLevel" -> fuelLevel = formatWithUnit(asDouble(node, field), field.unit());
                         case "speed" -> speed = formatWithUnit(asDouble(node, field), field.unit());
                         case "latitude" -> latitude = asDouble(node, field);
@@ -114,10 +114,35 @@ public class ProtocolPayloadMapper {
         return current;
     }
 
+    private String doorState(JsonNode node, ProtocolFieldConfigResponse field) {
+        if ("BOOLEAN".equalsIgnoreCase(field.dataType())) {
+            return asBoolean(node) ? "Abierta" : "Cerrada";
+        }
+        return asText(node);
+    }
+
+    private String coolingUnitState(JsonNode node, ProtocolFieldConfigResponse field) {
+        if ("BOOLEAN".equalsIgnoreCase(field.dataType())) {
+            return asBoolean(node) ? "Encendido" : "Apagado";
+        }
+        return asText(node);
+    }
+
+    private boolean asBoolean(JsonNode node) {
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        if (node.isNumber()) {
+            return node.asInt() != 0;
+        }
+        String normalized = asText(node).toLowerCase(Locale.US);
+        return normalized.equals("true") || normalized.equals("1") || normalized.equals("abierta") || normalized.equals("encendido");
+    }
+
     private Object valueForCustomField(JsonNode node, ProtocolFieldConfigResponse field) {
         return switch (normalizedDataType(field.dataType())) {
             case "NUMBER" -> asDouble(node, field);
-            case "BOOLEAN" -> node.isBoolean() ? node.asBoolean() : Boolean.parseBoolean(asText(node));
+            case "BOOLEAN" -> asBoolean(node);
             default -> asText(node);
         };
     }
