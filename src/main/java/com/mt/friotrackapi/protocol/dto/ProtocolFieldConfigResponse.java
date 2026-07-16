@@ -9,6 +9,10 @@ public record ProtocolFieldConfigResponse(
         String unit,
         String sampleValue,
         String targetField,
-        Boolean required
+        Boolean required,
+        String alertMode,
+        String alertActivationValue,
+        Double alertMin,
+        Double alertMax
 ) {
 }

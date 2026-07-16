@@ -41,7 +41,32 @@ public class ProtocolConfigService {
 
 
     public TemperatureRulesResponse temperatureRules(Long companyId) {
-        return findByCompany(companyId).temperatureRules();
+        ProtocolConfigResponse config = findByCompany(companyId);
+        ProtocolFieldConfigResponse temperature = fieldForTarget(config.fields(), "temperature");
+        TemperatureRulesResponse fallback = config.temperatureRules();
+        if (temperature != null && "RANGE".equalsIgnoreCase(clean(temperature.alertMode()))) {
+            return new TemperatureRulesResponse(
+                    temperature.alertMin() == null ? fallback.minAllowed() : temperature.alertMin(),
+                    temperature.alertMax() == null ? fallback.maxAllowed() : temperature.alertMax(),
+                    fallback.criticalLow(),
+                    fallback.criticalHigh()
+            );
+        }
+        return fallback;
+    }
+
+    public ProtocolFieldConfigResponse fieldForTarget(Long companyId, String targetField) {
+        return fieldForTarget(findByCompany(companyId).fields(), targetField);
+    }
+
+    private ProtocolFieldConfigResponse fieldForTarget(List<ProtocolFieldConfigResponse> fields, String targetField) {
+        if (fields == null || targetField == null) {
+            return null;
+        }
+        return fields.stream()
+                .filter(field -> targetField.equalsIgnoreCase(field.targetField()) || targetField.equalsIgnoreCase(field.key()))
+                .findFirst()
+                .orElse(null);
     }
 
     public String targetRangeLabel(Long companyId) {
@@ -115,7 +140,7 @@ public class ProtocolConfigService {
                 clean(request.topicPattern()),
                 cleanOptional(request.payloadRoot()),
                 request.fields() == null ? List.of() : request.fields().stream().map(this::normalizeField).toList(),
-                rulesOrDefault(request.temperatureRules())
+                rulesFromFields(request.fields(), request.temperatureRules())
         );
         configs.put(request.companyId(), config);
         saveConfigs();
@@ -139,6 +164,8 @@ public class ProtocolConfigService {
     }
 
     private ProtocolFieldConfigResponse normalizeField(ProtocolFieldConfigResponse field) {
+        String targetField = clean(field.targetField());
+        String alertMode = normalizeAlertMode(field.alertMode(), targetField);
         return new ProtocolFieldConfigResponse(
                 clean(field.key()),
                 clean(field.label()),
@@ -147,9 +174,71 @@ public class ProtocolConfigService {
                 normalizeDataType(field.dataType()),
                 cleanOptional(field.unit()),
                 cleanOptional(field.sampleValue()),
-                clean(field.targetField()),
-                field.required() == null ? defaultRequired(field.targetField()) : field.required()
+                targetField,
+                field.required() == null ? defaultRequired(targetField) : field.required(),
+                alertMode,
+                alertActivationValue(field.alertActivationValue(), targetField, alertMode),
+                alertMin(field.alertMin(), targetField, alertMode),
+                alertMax(field.alertMax(), targetField, alertMode)
         );
+    }
+
+    private TemperatureRulesResponse rulesFromFields(List<ProtocolFieldConfigResponse> fields, TemperatureRulesResponse requestRules) {
+        TemperatureRulesResponse fallback = rulesOrDefault(requestRules);
+        ProtocolFieldConfigResponse temperature = fieldForTarget(fields == null ? List.of() : fields, "temperature");
+        if (temperature == null || !"RANGE".equalsIgnoreCase(clean(temperature.alertMode()))) {
+            return fallback;
+        }
+        Double min = temperature.alertMin() == null ? fallback.minAllowed() : temperature.alertMin();
+        Double max = temperature.alertMax() == null ? fallback.maxAllowed() : temperature.alertMax();
+        return new TemperatureRulesResponse(min, max, min - 3.0, max + 3.0);
+    }
+
+    private String normalizeAlertMode(String alertMode, String targetField) {
+        String normalized = clean(alertMode).toUpperCase(java.util.Locale.ROOT);
+        if (normalized.equals("ACTIVATION") || normalized.equals("RANGE") || normalized.equals("NONE")) {
+            return normalized;
+        }
+        return switch (clean(targetField)) {
+            case "temperature" -> "RANGE";
+            case "doorState", "coolingUnitState" -> "ACTIVATION";
+            default -> "NONE";
+        };
+    }
+
+    private String alertActivationValue(String value, String targetField, String alertMode) {
+        if (!"ACTIVATION".equalsIgnoreCase(alertMode)) {
+            return "";
+        }
+        String cleanValue = cleanOptional(value);
+        if (!cleanValue.isBlank()) {
+            return cleanValue;
+        }
+        return switch (clean(targetField)) {
+            case "doorState" -> "Abierta";
+            case "coolingUnitState" -> "Apagado";
+            default -> "true";
+        };
+    }
+
+    private Double alertMin(Double value, String targetField, String alertMode) {
+        if (!"RANGE".equalsIgnoreCase(alertMode)) {
+            return null;
+        }
+        if (value != null) {
+            return value;
+        }
+        return "temperature".equalsIgnoreCase(clean(targetField)) ? defaultTemperatureRules().minAllowed() : 0.0;
+    }
+
+    private Double alertMax(Double value, String targetField, String alertMode) {
+        if (!"RANGE".equalsIgnoreCase(alertMode)) {
+            return null;
+        }
+        if (value != null) {
+            return value;
+        }
+        return "temperature".equalsIgnoreCase(clean(targetField)) ? defaultTemperatureRules().maxAllowed() : 100.0;
     }
 
     private Map<String, Object> previewPayload(String payloadRoot, List<ProtocolFieldConfigResponse> fields) {
@@ -234,15 +323,15 @@ public class ProtocolConfigService {
                 "vehiculo/{id}",
                 "",
                 List.of(
-                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true),
-                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false),
-                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "STRING", "", "Cerrada", "doorState", false),
-                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "STRING", "", "Encendido", "coolingUnitState", false),
-                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false),
-                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false),
-                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false),
-                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false),
-                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false)
+                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true, "RANGE", "", -2.0, 5.0),
+                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null),
+                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "STRING", "", "Cerrada", "doorState", false, "ACTIVATION", "Abierta", null, null),
+                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "STRING", "", "Encendido", "coolingUnitState", false, "ACTIVATION", "Apagado", null, null),
+                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false, "NONE", "", null, null),
+                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false, "NONE", "", null, null),
+                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false, "NONE", "", null, null),
+                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false, "NONE", "", null, null),
+                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false, "NONE", "", null, null)
                 ),
                 defaultTemperatureRules()
         );
