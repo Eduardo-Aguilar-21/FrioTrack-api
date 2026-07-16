@@ -36,6 +36,7 @@ public class MqttTelemetryIngestionService {
     public void ingest(String topic, String payload) {
         Long vehicleId = vehicleIdFromTopic(topic);
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        validateTopicPattern(protocolConfigService.findByCompany(vehicle.companyId()).topicPattern(), topic, vehicleId);
         ProtocolTelemetryData data = protocolPayloadMapper.map(vehicle.companyId(), payload);
 
         telemetryService.applyMqttTelemetry(vehicle, data);
@@ -61,15 +62,22 @@ public class MqttTelemetryIngestionService {
             throw new ApiException("Topic MQTT vacio");
         }
 
-        String[] parts = topic.split("/");
-        if (parts.length < 2 || !"vehiculo".equalsIgnoreCase(parts[0])) {
-            throw new ApiException("Topic MQTT no soportado: " + topic);
+        for (String part : topic.split("/")) {
+            try {
+                return Long.parseLong(part);
+            } catch (NumberFormatException ignored) {
+                // Keep scanning the topic. The configured pattern is validated after the vehicle is identified.
+            }
         }
 
-        try {
-            return Long.parseLong(parts[1]);
-        } catch (NumberFormatException ex) {
-            throw new ApiException("Id de vehiculo invalido en topic MQTT: " + topic);
+        throw new ApiException("Id de vehiculo invalido en topic MQTT: " + topic);
+    }
+
+    private void validateTopicPattern(String topicPattern, String topic, Long vehicleId) {
+        String pattern = topicPattern == null || topicPattern.isBlank() ? "vehiculo/{id}" : topicPattern.trim();
+        String expected = pattern.replace("{id}", String.valueOf(vehicleId));
+        if (!expected.equals(topic)) {
+            throw new ApiException("Topic MQTT no coincide con el patron configurado: " + topic);
         }
     }
 

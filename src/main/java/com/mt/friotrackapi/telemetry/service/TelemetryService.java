@@ -71,12 +71,18 @@ public class TelemetryService {
                 vehicle.latitude(),
                 vehicle.longitude(),
                 "Sin direccion registrada",
-                vehicle.lastCommunication()
+                vehicle.lastCommunication(),
+                Map.of()
         );
     }
 
     public TelemetrySnapshotResponse applyMqttTelemetry(VehicleResponse vehicle, ProtocolTelemetryData data) {
         TelemetrySnapshotResponse current = rawSnapshot(vehicle);
+        Map<String, Object> customFields = new LinkedHashMap<>(current.customFields() == null ? Map.of() : current.customFields());
+        if (data.customFields() != null) {
+            customFields.putAll(data.customFields());
+        }
+
         TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
                 vehicle.id(),
                 data.temperature() == null ? current.temperature() : data.temperature(),
@@ -90,7 +96,8 @@ public class TelemetryService {
                 data.latitude() == null ? current.latitude() : data.latitude(),
                 data.longitude() == null ? current.longitude() : data.longitude(),
                 data.latitude() != null && data.longitude() != null ? "Ubicacion MQTT" : current.address(),
-                "Ahora"
+                "Ahora",
+                customFields
         );
         snapshots.put(vehicle.id(), snapshot);
         saveSnapshots();
@@ -117,6 +124,12 @@ public class TelemetryService {
                 severity
         );
         List<VehicleEventResponse> vehicleEvents = new ArrayList<>(events.getOrDefault(vehicleId, List.of()));
+        if (!vehicleEvents.isEmpty()) {
+            VehicleEventResponse last = vehicleEvents.get(0);
+            if (sameEvent(last, event)) {
+                return;
+            }
+        }
         vehicleEvents.add(0, event);
         if (vehicleEvents.size() > 50) {
             vehicleEvents = new ArrayList<>(vehicleEvents.subList(0, 50));
@@ -127,6 +140,7 @@ public class TelemetryService {
 
     public TelemetrySnapshotResponse updateSnapshot(UpdateTelemetrySnapshotRequest request) {
         VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
+        TelemetrySnapshotResponse current = rawSnapshot(vehicle);
         TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
                 request.vehicleId(),
                 request.temperature(),
@@ -140,7 +154,8 @@ public class TelemetryService {
                 request.latitude(),
                 request.longitude(),
                 request.address(),
-                request.lastCommunication()
+                request.lastCommunication(),
+                current.customFields() == null ? Map.of() : current.customFields()
         );
         snapshots.put(request.vehicleId(), snapshot);
         saveSnapshots();
@@ -261,8 +276,37 @@ public class TelemetryService {
                 latitude ? snapshot.latitude() : null,
                 longitude ? snapshot.longitude() : null,
                 latitude && longitude ? snapshot.address() : null,
-                snapshot.lastCommunication()
+                snapshot.lastCommunication(),
+                maskCustomFields(companyId, snapshot.customFields())
         );
+    }
+
+    private Map<String, Object> maskCustomFields(Long companyId, Map<String, Object> customFields) {
+        if (customFields == null || customFields.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> visible = new LinkedHashMap<>();
+        customFields.forEach((key, value) -> {
+            if (protocolConfigService.isFieldEnabled(companyId, key)) {
+                visible.put(key, value);
+            }
+        });
+        return visible;
+    }
+
+    private boolean sameEvent(VehicleEventResponse current, VehicleEventResponse next) {
+        return equalsIgnoreCase(current.type(), next.type())
+                && equalsIgnoreCase(current.title(), next.title())
+                && equalsIgnoreCase(current.description(), next.description())
+                && equalsIgnoreCase(current.severity(), next.severity());
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private void loadAll() {
@@ -382,7 +426,8 @@ public class TelemetryService {
                 -12.0576,
                 -76.9649,
                 "Av. Nicolas Ayllon 3980, Ate, Lima",
-                "Hace 1 min"
+                "Hace 1 min",
+                Map.of()
         );
     }
 

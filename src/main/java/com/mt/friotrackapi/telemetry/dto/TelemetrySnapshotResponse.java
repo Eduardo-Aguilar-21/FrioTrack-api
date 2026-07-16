@@ -1,5 +1,7 @@
 package com.mt.friotrackapi.telemetry.dto;
 
+import java.util.Map;
+
 public record TelemetrySnapshotResponse(
         Long vehicleId,
         String temperature,
@@ -13,6 +15,7 @@ public record TelemetrySnapshotResponse(
         Double latitude,
         Double longitude,
         String address,
-        String lastCommunication
+        String lastCommunication,
+        Map<String, Object> customFields
 ) {
 }

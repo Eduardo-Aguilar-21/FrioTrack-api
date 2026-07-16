@@ -123,15 +123,18 @@ public class ProtocolConfigService {
     }
 
     private ProtocolConfigResponse toResponse(StoredProtocolConfig config) {
+        List<ProtocolFieldConfigResponse> fields = config.fields() == null
+                ? defaultConfig(config.companyId()).fields()
+                : config.fields().stream().map(this::normalizeField).toList();
         return new ProtocolConfigResponse(
                 config.companyId(),
                 config.brokerName(),
                 config.topicPattern(),
                 topicExample(config.topicPattern()),
                 config.payloadRoot(),
-                config.fields(),
+                fields,
                 rulesOrDefault(config.temperatureRules()),
-                previewPayload(config.payloadRoot(), config.fields())
+                previewPayload(config.payloadRoot(), fields)
         );
     }
 
@@ -144,7 +147,8 @@ public class ProtocolConfigService {
                 normalizeDataType(field.dataType()),
                 cleanOptional(field.unit()),
                 cleanOptional(field.sampleValue()),
-                clean(field.targetField())
+                clean(field.targetField()),
+                field.required() == null ? defaultRequired(field.targetField()) : field.required()
         );
     }
 
@@ -230,15 +234,15 @@ public class ProtocolConfigService {
                 "vehiculo/{id}",
                 "",
                 List.of(
-                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature"),
-                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity"),
-                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "STRING", "", "Cerrada", "doorState"),
-                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "STRING", "", "Encendido", "coolingUnitState"),
-                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel"),
-                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed"),
-                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude"),
-                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude"),
-                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery")
+                        new ProtocolFieldConfigResponse("temperature", "Temperatura", true, "temperatura", "NUMBER", "C", "4.8", "temperature", true),
+                        new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false),
+                        new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "STRING", "", "Cerrada", "doorState", false),
+                        new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "STRING", "", "Encendido", "coolingUnitState", false),
+                        new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false),
+                        new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false),
+                        new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false),
+                        new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false),
+                        new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false)
                 ),
                 defaultTemperatureRules()
         );
@@ -266,6 +270,10 @@ public class ProtocolConfigService {
         defaults.put(1L, defaultConfig(1L));
         defaults.put(2L, defaultConfig(2L));
         return defaults;
+    }
+
+    private boolean defaultRequired(String targetField) {
+        return "temperature".equalsIgnoreCase(clean(targetField));
     }
 
     private String clean(String value) {

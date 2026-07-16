@@ -8,6 +8,7 @@ public record ProtocolFieldConfigResponse(
         String dataType,
         String unit,
         String sampleValue,
-        String targetField
+        String targetField,
+        Boolean required
 ) {
 }

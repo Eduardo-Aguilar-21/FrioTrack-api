@@ -10,7 +10,9 @@ import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 
 @Service
@@ -37,6 +39,7 @@ public class ProtocolPayloadMapper {
         String speed = null;
         Double latitude = null;
         Double longitude = null;
+        Map<String, Object> customFields = new LinkedHashMap<>();
 
         TemperatureRulesResponse rules = config.temperatureRules();
 
@@ -51,7 +54,9 @@ public class ProtocolPayloadMapper {
 
                 JsonNode node = readPath(source, field.jsonPath());
                 if (node == null || node.isMissingNode() || node.isNull()) {
-                    errors.add("Campo no encontrado: " + field.jsonPath());
+                    if (Boolean.TRUE.equals(field.required())) {
+                        errors.add("Campo requerido no encontrado: " + field.jsonPath());
+                    }
                     continue;
                 }
 
@@ -69,9 +74,7 @@ public class ProtocolPayloadMapper {
                         case "speed" -> speed = formatWithUnit(asDouble(node, field), field.unit());
                         case "latitude" -> latitude = asDouble(node, field);
                         case "longitude" -> longitude = asDouble(node, field);
-                        default -> {
-                            // Custom fields are accepted for preview/configuration; telemetry uses known target fields.
-                        }
+                        default -> customFields.put(field.targetField(), valueForCustomField(node, field));
                     }
                 } catch (IllegalArgumentException ex) {
                     errors.add(ex.getMessage());
@@ -81,7 +84,7 @@ public class ProtocolPayloadMapper {
             errors.add("JSON invalido: " + ex.getMessage());
         }
 
-        return new ProtocolTelemetryData(temperature, temperatureValue, temperatureState, humidity, doorState, coolingUnitState, fuelLevel, speed, latitude, longitude, errors);
+        return new ProtocolTelemetryData(temperature, temperatureValue, temperatureState, humidity, doorState, coolingUnitState, fuelLevel, speed, latitude, longitude, customFields, errors);
     }
 
     private JsonNode sourceRoot(JsonNode root, String payloadRoot, List<String> errors) {
@@ -109,6 +112,25 @@ public class ProtocolPayloadMapper {
             }
         }
         return current;
+    }
+
+    private Object valueForCustomField(JsonNode node, ProtocolFieldConfigResponse field) {
+        return switch (normalizedDataType(field.dataType())) {
+            case "NUMBER" -> asDouble(node, field);
+            case "BOOLEAN" -> node.isBoolean() ? node.asBoolean() : Boolean.parseBoolean(asText(node));
+            default -> asText(node);
+        };
+    }
+
+    private String normalizedDataType(String dataType) {
+        if (dataType == null || dataType.isBlank()) {
+            return "STRING";
+        }
+        String normalized = dataType.trim().toUpperCase(Locale.US);
+        return switch (normalized) {
+            case "NUMBER", "BOOLEAN", "STRING" -> normalized;
+            default -> "STRING";
+        };
     }
 
     private Double asDouble(JsonNode node, ProtocolFieldConfigResponse field) {
