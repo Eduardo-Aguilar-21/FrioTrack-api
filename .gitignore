@@ -34,3 +34,9 @@ build/
 
 # Runtime JSON persistence
 data/
+
+# MQTT runtime persistence
+docker/mqtt/data/*
+!docker/mqtt/data/.gitkeep
+docker/mqtt/log/*
+!docker/mqtt/log/.gitkeep
