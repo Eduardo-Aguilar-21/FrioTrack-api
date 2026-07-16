@@ -43,13 +43,21 @@ public class AlertService {
                 .filter(alert -> matches(type, alert.type()))
                 .filter(alert -> isBlank(vehicle) || contains(alert.vehicleLabel(), vehicle) || contains(alert.vehicleCode(), vehicle))
                 .filter(alert -> isBlank(term) || contains(searchText(alert), term))
+                .map(this::withCurrentProtocolIcon)
                 .toList();
     }
 
     public AlertResponse findById(Long id) {
+        AlertResponse alert = findRawById(id);
+        if (!isProtocolEnabled(alert)) {
+            throw new ApiException("Alerta no encontrada");
+        }
+        return withCurrentProtocolIcon(alert);
+    }
+
+    private AlertResponse findRawById(Long id) {
         return alerts.stream()
                 .filter(alert -> alert.id().equals(id))
-                .filter(this::isProtocolEnabled)
                 .findFirst()
                 .orElseThrow(() -> new ApiException("Alerta no encontrada"));
     }
@@ -102,13 +110,16 @@ public class AlertService {
     }
 
     public void delete(Long id) {
-        AlertResponse alert = findById(id);
+        AlertResponse alert = findRawById(id);
         alerts.remove(alert);
         saveAlerts();
     }
 
     private AlertResponse updateStatus(Long id, String status) {
-        AlertResponse alert = findById(id);
+        AlertResponse alert = findRawById(id);
+        if (!isProtocolEnabled(alert)) {
+            throw new ApiException("Alerta no encontrada");
+        }
         AlertResponse updated = new AlertResponse(
                 alert.id(),
                 alert.companyId(),
@@ -121,11 +132,11 @@ public class AlertService {
                 alert.occurredAtLabel(),
                 status,
                 alert.duration(),
-                iconOrDefault(alert.icon(), alert.type())
+                currentIconFor(alert, alert.icon())
         );
         alerts.set(alerts.indexOf(alert), updated);
         saveAlerts();
-        return updated;
+        return withCurrentProtocolIcon(updated);
     }
 
     public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
@@ -153,7 +164,7 @@ public class AlertService {
                 "Ahora",
                 "Activa",
                 existing == null ? "0 min" : existing.duration(),
-                iconOrDefault(icon == null && existing != null ? existing.icon() : icon, type)
+                currentIconFor(companyId, type, icon == null && existing != null ? existing.icon() : icon)
         );
 
         if (existing == null) {
@@ -186,7 +197,7 @@ public class AlertService {
                         alert.occurredAtLabel(),
                         "Resuelta",
                         alert.duration(),
-                        iconOrDefault(alert.icon(), alert.type())
+                        currentIconFor(alert, alert.icon())
                 ));
                 changed = true;
             }
@@ -195,6 +206,35 @@ public class AlertService {
         if (changed) {
             saveAlerts();
         }
+    }
+
+    private AlertResponse withCurrentProtocolIcon(AlertResponse alert) {
+        String currentIcon = currentIconFor(alert, alert.icon());
+        if (currentIcon.equals(alert.icon())) {
+            return alert;
+        }
+        return new AlertResponse(
+                alert.id(),
+                alert.companyId(),
+                alert.type(),
+                alert.severity(),
+                alert.title(),
+                alert.description(),
+                alert.vehicleLabel(),
+                alert.vehicleCode(),
+                alert.occurredAtLabel(),
+                alert.status(),
+                alert.duration(),
+                currentIcon
+        );
+    }
+
+    private String currentIconFor(AlertResponse alert, String fallbackIcon) {
+        return currentIconFor(alert.companyId(), alert.type(), fallbackIcon);
+    }
+
+    private String currentIconFor(Long companyId, String type, String fallbackIcon) {
+        return protocolConfigService.alertIconForType(companyId, type, iconOrDefault(fallbackIcon, type));
     }
 
     private String iconOrDefault(String icon, String type) {

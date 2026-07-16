@@ -116,12 +116,29 @@ public class ProtocolConfigService {
         return targetField == null || isFieldEnabled(companyId, targetField);
     }
 
+    public String alertIconForType(Long companyId, String type, String fallbackIcon) {
+        String targetField = targetFieldForType(type);
+        if (targetField == null) {
+            return fallbackIcon;
+        }
+        ProtocolFieldConfigResponse field = fieldForTarget(companyId, targetField);
+        if (field == null || field.alertIcon() == null || field.alertIcon().isBlank()) {
+            return fallbackIcon;
+        }
+        return field.alertIcon();
+    }
+
     public String targetFieldForType(String type) {
         if (type == null) {
             return null;
         }
 
-        return switch (type.trim().toUpperCase()) {
+        String normalizedType = type.trim().toUpperCase(java.util.Locale.ROOT);
+        if (normalizedType.startsWith("CUSTOM_") && normalizedType.length() > "CUSTOM_".length()) {
+            return normalizedType.substring("CUSTOM_".length());
+        }
+
+        return switch (normalizedType) {
             case "TEMPERATURE" -> "temperature";
             case "DOOR" -> "doorState";
             case "COOLING" -> "coolingUnitState";
@@ -252,6 +269,9 @@ public class ProtocolConfigService {
 
     private String normalizeActivationValue(String value, String targetField) {
         String normalized = clean(value).toLowerCase(java.util.Locale.ROOT);
+        if (normalized.equals("both") || normalized.equals("double") || normalized.equals("doble")) {
+            return "BOTH";
+        }
         if ("doorState".equalsIgnoreCase(clean(targetField))) {
             if (normalized.equals("abierta") || normalized.equals("open") || normalized.equals("1")) {
                 return "true";

@@ -116,8 +116,9 @@ public class MqttTelemetryIngestionService {
         }
 
         if (matchesActivation(data.doorState(), field.alertActivationValue())) {
-            alertService.recordMqttAlert(vehicle.companyId(), "DOOR", "WARNING", "Puerta abierta", "Estado recibido por MQTT: " + data.doorState(), vehicle.label(), vehicle.code(), field.alertIcon());
-            telemetryService.recordMqttEvent(vehicle.id(), "DOOR", "Puerta abierta", "Estado recibido por MQTT", "WARNING");
+            String title = isDoubleActivation(field.alertActivationValue()) ? "Puerta: " + data.doorState() : "Puerta abierta";
+            alertService.recordMqttAlert(vehicle.companyId(), "DOOR", "WARNING", title, "Estado recibido por MQTT: " + data.doorState(), vehicle.label(), vehicle.code(), field.alertIcon());
+            telemetryService.recordMqttEvent(vehicle.id(), "DOOR", title, "Estado recibido por MQTT", "WARNING");
             return;
         }
 
@@ -132,8 +133,9 @@ public class MqttTelemetryIngestionService {
         }
 
         if (matchesActivation(data.coolingUnitState(), field.alertActivationValue())) {
-            alertService.recordMqttAlert(vehicle.companyId(), "COOLING", "CRITICAL", "Equipo de frio apagado", "Estado recibido por MQTT: " + data.coolingUnitState(), vehicle.label(), vehicle.code(), field.alertIcon());
-            telemetryService.recordMqttEvent(vehicle.id(), "COOLING", "Equipo de frio apagado", "Estado recibido por MQTT", "CRITICAL");
+            String title = isDoubleActivation(field.alertActivationValue()) ? "Equipo de frio: " + data.coolingUnitState() : "Equipo de frio apagado";
+            alertService.recordMqttAlert(vehicle.companyId(), "COOLING", "CRITICAL", title, "Estado recibido por MQTT: " + data.coolingUnitState(), vehicle.label(), vehicle.code(), field.alertIcon());
+            telemetryService.recordMqttEvent(vehicle.id(), "COOLING", title, "Estado recibido por MQTT", "CRITICAL");
             return;
         }
 
@@ -179,9 +181,16 @@ public class MqttTelemetryIngestionService {
     }
 
     private boolean matchesActivation(String value, String expected) {
+        if (isDoubleActivation(expected)) {
+            return value != null && !value.trim().isBlank();
+        }
         String actual = value == null ? "" : value.trim();
         String target = expected == null || expected.isBlank() ? "true" : expected.trim();
         return actual.equalsIgnoreCase(target) || actual.toLowerCase(java.util.Locale.ROOT).contains(target.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private boolean isDoubleActivation(String expected) {
+        return expected != null && expected.trim().equalsIgnoreCase("BOTH");
     }
 
     private Double asDouble(Object value) {
