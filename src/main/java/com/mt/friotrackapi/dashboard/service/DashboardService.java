@@ -46,24 +46,36 @@ public class DashboardService {
                 ? String.format(Locale.US, "%.1f °C", average.getAsDouble())
                 : "--";
 
+        int total = vehicles.size();
         return new DashboardSummaryResponse(
-                vehicles.size(),
+                total,
                 counts.inRange(),
+                percent(counts.inRange(), total),
                 counts.warning(),
+                percent(counts.warning(), total),
                 counts.outOfRange(),
+                percent(counts.outOfRange(), total),
                 counts.offline(),
-                averageTemperature
+                percent(counts.offline(), total),
+                averageTemperature,
+                average.isPresent() ? averageTemperatureState(average.getAsDouble()) : "Sin datos"
         );
     }
 
     public List<FleetMapVehicleResponse> fleetMap(Long companyId) {
-        return vehicleService.findAll(companyId).stream()
+        List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
+        MapCenter center = mapCenter(vehicles);
+        return vehicles.stream()
                 .map(vehicle -> new FleetMapVehicleResponse(
                         vehicle.id(),
                         vehicle.label(),
                         vehicle.latitude(),
                         vehicle.longitude(),
+                        center.latitude(),
+                        center.longitude(),
+                        vehicles.isEmpty() ? 10.0 : 10.8,
                         vehicle.status(),
+                        statusLabel(vehicle.status()),
                         statusColor(vehicle.status()),
                         vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()
                 ))
@@ -76,8 +88,10 @@ public class DashboardService {
                         vehicle.id(),
                         vehicle.label(),
                         statusLabel(vehicle.status()),
+                        statusColorKey(vehicle.status()),
                         vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(),
                         vehicle.temperatureState(),
+                        statusColorKey(vehicle.temperatureState()),
                         vehicle.doorState(),
                         vehicle.coolingUnitState(),
                         vehicle.lastCommunication()
@@ -87,11 +101,17 @@ public class DashboardService {
 
     public TemperatureDistributionResponse temperatureDistribution(Long companyId) {
         Counts counts = countStatuses(vehicleService.findAll(companyId));
+        int total = counts.total();
         return new TemperatureDistributionResponse(
+                total,
                 counts.inRange(),
+                percent(counts.inRange(), total),
                 counts.warning(),
+                percent(counts.warning(), total),
                 counts.outOfRange(),
+                percent(counts.outOfRange(), total),
                 counts.offline(),
+                percent(counts.offline(), total),
                 TARGET_RANGE
         );
     }
@@ -158,9 +178,40 @@ public class DashboardService {
             case "EN_RANGO" -> "En rango";
             case "ADVERTENCIA" -> "Advertencia";
             case "CRITICO" -> "Critico";
+            case "FUERA_DE_RANGO" -> "Fuera de rango";
             case "SIN_COMUNICACION", "SIN_DATOS" -> "Sin comunicacion";
             default -> status == null ? "Sin datos" : status;
         };
+    }
+
+    private static String statusColorKey(String status) {
+        return switch (normalizeStatus(status)) {
+            case "EN_RANGO" -> "green";
+            case "ADVERTENCIA" -> "orange";
+            case "CRITICO", "FUERA_DE_RANGO" -> "red";
+            default -> "gray";
+        };
+    }
+
+    private static int percent(int value, int total) {
+        return total == 0 ? 0 : Math.round((value * 100.0f) / total);
+    }
+
+    private static String averageTemperatureState(double average) {
+        if (average < -2 || average > 5) {
+            return "fuera de rango";
+        }
+        return "en rango";
+    }
+
+    private static MapCenter mapCenter(List<VehicleResponse> vehicles) {
+        if (vehicles.isEmpty()) {
+            return new MapCenter(-12.0464, -77.0428);
+        }
+
+        double latitude = vehicles.stream().mapToDouble(VehicleResponse::latitude).average().orElse(-12.0464);
+        double longitude = vehicles.stream().mapToDouble(VehicleResponse::longitude).average().orElse(-77.0428);
+        return new MapCenter(latitude, longitude);
     }
 
     private static Double parseTemperature(String temperature) {
@@ -176,5 +227,11 @@ public class DashboardService {
     }
 
     private record Counts(int inRange, int warning, int outOfRange, int offline) {
+        private int total() {
+            return inRange + warning + outOfRange + offline;
+        }
+    }
+
+    private record MapCenter(double latitude, double longitude) {
     }
 }
