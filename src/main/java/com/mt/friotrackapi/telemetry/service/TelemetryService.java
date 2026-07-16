@@ -3,6 +3,7 @@ package com.mt.friotrackapi.telemetry.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
@@ -70,6 +71,56 @@ public class TelemetryService {
                 "Sin direccion registrada",
                 vehicle.lastCommunication()
         );
+    }
+
+    public TelemetrySnapshotResponse applyMqttTelemetry(VehicleResponse vehicle, ProtocolTelemetryData data) {
+        TelemetrySnapshotResponse current = rawSnapshot(vehicle);
+        TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
+                vehicle.id(),
+                data.temperature() == null ? current.temperature() : data.temperature(),
+                data.temperatureState() == null ? current.temperatureState() : data.temperatureState(),
+                data.humidity() == null ? current.humidity() : data.humidity(),
+                data.doorState() == null ? current.doorState() : data.doorState(),
+                data.coolingUnitState() == null ? current.coolingUnitState() : data.coolingUnitState(),
+                data.fuelLevel() == null ? current.fuelLevel() : data.fuelLevel(),
+                data.speed() == null ? current.speed() : data.speed(),
+                current.targetRange() == null ? "-2 °C a 5 °C" : current.targetRange(),
+                data.latitude() == null ? current.latitude() : data.latitude(),
+                data.longitude() == null ? current.longitude() : data.longitude(),
+                data.latitude() != null && data.longitude() != null ? "Ubicacion MQTT" : current.address(),
+                "Ahora"
+        );
+        snapshots.put(vehicle.id(), snapshot);
+        saveSnapshots();
+
+        if (data.temperatureValue() != null) {
+            List<TemperaturePointResponse> points = new ArrayList<>(history.getOrDefault(vehicle.id(), defaultHistory()));
+            points.add(new TemperaturePointResponse(java.time.LocalTime.now().withSecond(0).withNano(0).toString(), data.temperatureValue()));
+            if (points.size() > 48) {
+                points = new ArrayList<>(points.subList(points.size() - 48, points.size()));
+            }
+            history.put(vehicle.id(), points);
+            saveHistory();
+        }
+
+        return maskSnapshot(vehicle.companyId(), snapshot);
+    }
+
+    public void recordMqttEvent(Long vehicleId, String type, String title, String description, String severity) {
+        VehicleEventResponse event = new VehicleEventResponse(
+                type,
+                title,
+                description,
+                java.time.LocalTime.now().withSecond(0).withNano(0).toString(),
+                severity
+        );
+        List<VehicleEventResponse> vehicleEvents = new ArrayList<>(events.getOrDefault(vehicleId, List.of()));
+        vehicleEvents.add(0, event);
+        if (vehicleEvents.size() > 50) {
+            vehicleEvents = new ArrayList<>(vehicleEvents.subList(0, 50));
+        }
+        events.put(vehicleId, vehicleEvents);
+        saveEvents();
     }
 
     public TelemetrySnapshotResponse updateSnapshot(UpdateTelemetrySnapshotRequest request) {

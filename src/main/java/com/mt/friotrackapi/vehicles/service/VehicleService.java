@@ -120,6 +120,69 @@ public class VehicleService {
         return updated;
     }
 
+    public VehicleResponse updateTelemetryState(
+            Long id,
+            Double latitude,
+            Double longitude,
+            String currentTemperature,
+            String temperatureState,
+            String doorState,
+            String coolingUnitState,
+            String lastCommunication
+    ) {
+        VehicleResponse current = findById(id);
+        String nextStatus = vehicleStatus(currentTemperature, temperatureState, current.status());
+        VehicleResponse updated = new VehicleResponse(
+                current.id(),
+                current.companyId(),
+                current.code(),
+                current.plate(),
+                current.label(),
+                nextStatus,
+                current.driver(),
+                current.imei(),
+                current.model(),
+                current.year(),
+                current.unitType(),
+                current.loadCapacityKg(),
+                latitude == null ? current.latitude() : latitude,
+                longitude == null ? current.longitude() : longitude,
+                currentTemperature == null ? current.currentTemperature() : currentTemperature,
+                temperatureState == null ? current.temperatureState() : temperatureState,
+                doorState == null ? current.doorState() : doorState,
+                coolingUnitState == null ? current.coolingUnitState() : coolingUnitState,
+                lastCommunication == null ? current.lastCommunication() : lastCommunication
+        );
+        vehicles.set(vehicles.indexOf(current), updated);
+        saveVehicles();
+        return updated;
+    }
+
+    private String vehicleStatus(String currentTemperature, String temperatureState, String currentStatus) {
+        if (currentTemperature == null || currentTemperature.isBlank()) {
+            return currentStatus;
+        }
+        Double value = parseTemperature(currentTemperature);
+        if (value == null) {
+            return currentStatus;
+        }
+        if (value > 8 || value < -5) {
+            return "CRITICO";
+        }
+        if (temperatureState != null && temperatureState.equalsIgnoreCase("Fuera de rango")) {
+            return "ADVERTENCIA";
+        }
+        return "EN_RANGO";
+    }
+
+    private Double parseTemperature(String value) {
+        try {
+            return Double.parseDouble(value.replace("°C", "").replace("C", "").trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     private Long nextId() {
         return vehicles.stream().mapToLong(VehicleResponse::id).max().orElse(0L) + 1;
     }

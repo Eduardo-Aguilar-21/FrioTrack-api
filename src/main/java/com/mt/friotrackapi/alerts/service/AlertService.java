@@ -100,6 +100,73 @@ public class AlertService {
         return resolved;
     }
 
+    public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
+        AlertResponse existing = alerts.stream()
+                .filter(alert -> alert.companyId().equals(companyId))
+                .filter(alert -> alert.type().equalsIgnoreCase(type))
+                .filter(alert -> alert.vehicleCode().equalsIgnoreCase(vehicleCode))
+                .filter(alert -> !alert.status().equalsIgnoreCase("Resuelta"))
+                .findFirst()
+                .orElse(null);
+
+        AlertResponse next = new AlertResponse(
+                existing == null ? nextId() : existing.id(),
+                companyId,
+                type,
+                severity,
+                title,
+                description,
+                vehicleLabel,
+                vehicleCode,
+                "Ahora",
+                "Activa",
+                existing == null ? "0 min" : existing.duration()
+        );
+
+        if (existing == null) {
+            alerts.add(0, next);
+        } else {
+            alerts.set(alerts.indexOf(existing), next);
+        }
+
+        saveAlerts();
+        return next;
+    }
+
+    public void resolveMqttAlert(Long companyId, String type, String vehicleCode) {
+        boolean changed = false;
+        for (int index = 0; index < alerts.size(); index++) {
+            AlertResponse alert = alerts.get(index);
+            if (alert.companyId().equals(companyId)
+                    && alert.type().equalsIgnoreCase(type)
+                    && alert.vehicleCode().equalsIgnoreCase(vehicleCode)
+                    && !alert.status().equalsIgnoreCase("Resuelta")) {
+                alerts.set(index, new AlertResponse(
+                        alert.id(),
+                        alert.companyId(),
+                        alert.type(),
+                        alert.severity(),
+                        alert.title(),
+                        alert.description(),
+                        alert.vehicleLabel(),
+                        alert.vehicleCode(),
+                        alert.occurredAtLabel(),
+                        "Resuelta",
+                        alert.duration()
+                ));
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            saveAlerts();
+        }
+    }
+
+    private Long nextId() {
+        return alerts.stream().mapToLong(AlertResponse::id).max().orElse(0L) + 1;
+    }
+
     private boolean isProtocolEnabled(AlertResponse alert) {
         return protocolConfigService.isEventTypeEnabled(alert.companyId(), alert.type());
     }
