@@ -8,6 +8,7 @@ import com.mt.friotrackapi.sensors.dto.CreateSensorRequest;
 import com.mt.friotrackapi.sensors.dto.SensorResponse;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -21,13 +22,14 @@ public class SensorService {
 
     private final CompanyService companyService;
     private final VehicleService vehicleService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "sensors.json");
+    private final JsonStoreService jsonStoreService;
     private final List<SensorResponse> sensors = new ArrayList<>();
 
-    public SensorService(CompanyService companyService, VehicleService vehicleService) {
+    public SensorService(CompanyService companyService, VehicleService vehicleService, JsonStoreService jsonStoreService) {
         this.companyService = companyService;
         this.vehicleService = vehicleService;
+        this.jsonStoreService = jsonStoreService;
         loadSensors();
     }
 
@@ -116,26 +118,20 @@ public class SensorService {
     }
 
     private void loadSensors() {
-        try {
-            if (Files.exists(storePath)) {
-                sensors.addAll(objectMapper.readValue(storePath.toFile(), new TypeReference<List<SensorResponse>>() {}));
-                return;
-            }
-
-            sensors.addAll(defaultSensors());
-            saveSensors();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar sensores persistidos");
-        }
+        sensors.addAll(jsonStoreService.read(
+                "sensors",
+                storePath,
+                new TypeReference<List<SensorResponse>>() {},
+                this::defaultSensors,
+                "No se pudo cargar sensores persistidos",
+                "No se pudo persistir sensores"
+        ));
     }
 
+
+
     private void saveSensors() {
-        try {
-            Files.createDirectories(storePath.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storePath.toFile(), sensors);
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo persistir sensores");
-        }
+        jsonStoreService.write("sensors", storePath, sensors, "No se pudo persistir sensores");
     }
 
     private List<SensorResponse> defaultSensors() {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.companies.service.CompanyService;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import com.mt.friotrackapi.protocol.dto.ProtocolConfigResponse;
 import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
 import com.mt.friotrackapi.protocol.dto.SaveProtocolConfigRequest;
@@ -19,13 +20,14 @@ import java.util.Map;
 @Service
 public class ProtocolConfigService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "protocol-configs.json");
     private final Map<Long, StoredProtocolConfig> configs = new LinkedHashMap<>();
     private final CompanyService companyService;
+    private final JsonStoreService jsonStoreService;
 
-    public ProtocolConfigService(CompanyService companyService) {
+    public ProtocolConfigService(CompanyService companyService, JsonStoreService jsonStoreService) {
         this.companyService = companyService;
+        this.jsonStoreService = jsonStoreService;
         loadConfigs();
     }
 
@@ -206,27 +208,27 @@ public class ProtocolConfigService {
     }
 
     private void loadConfigs() {
-        try {
-            if (Files.exists(storePath)) {
-                configs.putAll(objectMapper.readValue(storePath.toFile(), new TypeReference<Map<Long, StoredProtocolConfig>>() {}));
-                return;
-            }
-
-            configs.put(1L, defaultConfig(1L));
-            configs.put(2L, defaultConfig(2L));
-            saveConfigs();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar configuraciones de protocolo");
-        }
+        configs.putAll(jsonStoreService.read(
+                "protocol-configs",
+                storePath,
+                new TypeReference<Map<Long, StoredProtocolConfig>>() {},
+                this::defaultConfigs,
+                "No se pudo cargar configuraciones de protocolo",
+                "No se pudo persistir configuracion de protocolo"
+        ));
     }
 
+
+
     private void saveConfigs() {
-        try {
-            Files.createDirectories(storePath.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storePath.toFile(), configs);
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo persistir configuracion de protocolo");
-        }
+        jsonStoreService.write("protocol-configs", storePath, configs, "No se pudo persistir configuracion de protocolo");
+    }
+
+    private Map<Long, StoredProtocolConfig> defaultConfigs() {
+        Map<Long, StoredProtocolConfig> defaults = new LinkedHashMap<>();
+        defaults.put(1L, defaultConfig(1L));
+        defaults.put(2L, defaultConfig(2L));
+        return defaults;
     }
 
     private String clean(String value) {

@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS app_store (
+    store_key VARCHAR(120) PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

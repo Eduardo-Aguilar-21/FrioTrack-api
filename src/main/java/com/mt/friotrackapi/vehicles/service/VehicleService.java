@@ -6,6 +6,7 @@ import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.companies.service.CompanyService;
 import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -18,12 +19,13 @@ import java.util.List;
 public class VehicleService {
 
     private final CompanyService companyService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "vehicles.json");
+    private final JsonStoreService jsonStoreService;
     private final List<VehicleResponse> vehicles = new ArrayList<>();
 
-    public VehicleService(CompanyService companyService) {
+    public VehicleService(CompanyService companyService, JsonStoreService jsonStoreService) {
         this.companyService = companyService;
+        this.jsonStoreService = jsonStoreService;
         loadVehicles();
     }
 
@@ -188,26 +190,20 @@ public class VehicleService {
     }
 
     private void loadVehicles() {
-        try {
-            if (Files.exists(storePath)) {
-                vehicles.addAll(objectMapper.readValue(storePath.toFile(), new TypeReference<List<VehicleResponse>>() {}));
-                return;
-            }
-
-            vehicles.addAll(defaultVehicles());
-            saveVehicles();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar vehiculos persistidos");
-        }
+        vehicles.addAll(jsonStoreService.read(
+                "vehicles",
+                storePath,
+                new TypeReference<List<VehicleResponse>>() {},
+                this::defaultVehicles,
+                "No se pudo cargar vehiculos persistidos",
+                "No se pudo persistir vehiculos"
+        ));
     }
 
+
+
     private void saveVehicles() {
-        try {
-            Files.createDirectories(storePath.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storePath.toFile(), vehicles);
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo persistir vehiculos");
-        }
+        jsonStoreService.write("vehicles", storePath, vehicles, "No se pudo persistir vehiculos");
     }
 
     private List<VehicleResponse> defaultVehicles() {

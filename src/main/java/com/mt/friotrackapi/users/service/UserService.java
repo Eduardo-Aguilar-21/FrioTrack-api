@@ -11,6 +11,7 @@ import com.mt.friotrackapi.roles.service.RoleService;
 import com.mt.friotrackapi.users.dto.CreateUserRequest;
 import com.mt.friotrackapi.users.dto.UserResponse;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -25,14 +26,15 @@ public class UserService {
     private final RoleService roleService;
     private final CompanyService companyService;
     private final PasswordEncoder passwordEncoder;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "users.json");
+    private final JsonStoreService jsonStoreService;
     private final List<UserAccount> users = new ArrayList<>();
 
-    public UserService(RoleService roleService, CompanyService companyService, PasswordEncoder passwordEncoder) {
+    public UserService(RoleService roleService, CompanyService companyService, PasswordEncoder passwordEncoder, JsonStoreService jsonStoreService) {
         this.roleService = roleService;
         this.companyService = companyService;
         this.passwordEncoder = passwordEncoder;
+        this.jsonStoreService = jsonStoreService;
         loadUsers();
     }
 
@@ -148,26 +150,20 @@ public class UserService {
     }
 
     private void loadUsers() {
-        try {
-            if (Files.exists(storePath)) {
-                users.addAll(objectMapper.readValue(storePath.toFile(), new TypeReference<List<UserAccount>>() {}));
-                return;
-            }
-
-            users.addAll(defaultUsers());
-            saveUsers();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar usuarios persistidos");
-        }
+        users.addAll(jsonStoreService.read(
+                "users",
+                storePath,
+                new TypeReference<List<UserAccount>>() {},
+                this::defaultUsers,
+                "No se pudo cargar usuarios persistidos",
+                "No se pudo persistir usuarios"
+        ));
     }
 
+
+
     private void saveUsers() {
-        try {
-            Files.createDirectories(storePath.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storePath.toFile(), users);
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo persistir usuarios");
-        }
+        jsonStoreService.write("users", storePath, users, "No se pudo persistir usuarios");
     }
 
     private List<UserAccount> defaultUsers() {

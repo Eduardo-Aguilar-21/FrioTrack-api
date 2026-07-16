@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
@@ -28,19 +29,20 @@ import java.util.Map;
 @Service
 public class TelemetryService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path snapshotsPath = Path.of(System.getProperty("user.dir"), "data", "telemetry-snapshots.json");
     private final Path historyPath = Path.of(System.getProperty("user.dir"), "data", "temperature-history.json");
     private final Path eventsPath = Path.of(System.getProperty("user.dir"), "data", "vehicle-events.json");
     private final Map<Long, TelemetrySnapshotResponse> snapshots = new LinkedHashMap<>();
     private final Map<Long, List<TemperaturePointResponse>> history = new LinkedHashMap<>();
     private final Map<Long, List<VehicleEventResponse>> events = new LinkedHashMap<>();
+    private final JsonStoreService jsonStoreService;
     private final VehicleService vehicleService;
     private final ProtocolConfigService protocolConfigService;
 
-    public TelemetryService(VehicleService vehicleService, ProtocolConfigService protocolConfigService) {
+    public TelemetryService(VehicleService vehicleService, ProtocolConfigService protocolConfigService, JsonStoreService jsonStoreService) {
         this.vehicleService = vehicleService;
         this.protocolConfigService = protocolConfigService;
+        this.jsonStoreService = jsonStoreService;
         loadAll();
     }
 
@@ -270,65 +272,76 @@ public class TelemetryService {
     }
 
     private void loadSnapshots() {
-        try {
-            if (Files.exists(snapshotsPath)) {
-                snapshots.putAll(objectMapper.readValue(snapshotsPath.toFile(), new TypeReference<Map<Long, TelemetrySnapshotResponse>>() {}));
-                return;
-            }
-            snapshots.put(12L, defaultSnapshot());
-            saveSnapshots();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar snapshots de telemetria");
-        }
+        snapshots.putAll(jsonStoreService.read(
+                "telemetry-snapshots",
+                snapshotsPath,
+                new TypeReference<Map<Long, TelemetrySnapshotResponse>>() {},
+                this::defaultSnapshots,
+                "No se pudo cargar snapshots de telemetria",
+                "No se pudo persistir snapshots de telemetria"
+        ));
     }
+
 
     private void loadHistory() {
-        try {
-            if (Files.exists(historyPath)) {
-                history.putAll(objectMapper.readValue(historyPath.toFile(), new TypeReference<Map<Long, List<TemperaturePointResponse>>>() {}));
-                return;
-            }
-            history.put(12L, defaultHistory());
-            saveHistory();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar historial de temperatura");
-        }
+        history.putAll(jsonStoreService.read(
+                "temperature-history",
+                historyPath,
+                new TypeReference<Map<Long, List<TemperaturePointResponse>>>() {},
+                this::defaultHistoryMap,
+                "No se pudo cargar historial de temperatura",
+                "No se pudo persistir historial de temperatura"
+        ));
     }
+
 
     private void loadEvents() {
-        try {
-            if (Files.exists(eventsPath)) {
-                events.putAll(objectMapper.readValue(eventsPath.toFile(), new TypeReference<Map<Long, List<VehicleEventResponse>>>() {}));
-                return;
-            }
-            events.put(12L, defaultEvents());
-            saveEvents();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar eventos de vehiculo");
-        }
+        events.putAll(jsonStoreService.read(
+                "vehicle-events",
+                eventsPath,
+                new TypeReference<Map<Long, List<VehicleEventResponse>>>() {},
+                this::defaultEventsMap,
+                "No se pudo cargar eventos de vehiculo",
+                "No se pudo persistir eventos de vehiculo"
+        ));
     }
+
 
     private void saveSnapshots() {
-        write(snapshotsPath, snapshots, "No se pudo persistir snapshots de telemetria");
+        jsonStoreService.write("telemetry-snapshots", snapshotsPath, snapshots, "No se pudo persistir snapshots de telemetria");
     }
+
 
     private void saveHistory() {
-        write(historyPath, history, "No se pudo persistir historial de temperatura");
+        jsonStoreService.write("temperature-history", historyPath, history, "No se pudo persistir historial de temperatura");
     }
+
 
     private void saveEvents() {
-        write(eventsPath, events, "No se pudo persistir eventos de vehiculo");
+        jsonStoreService.write("vehicle-events", eventsPath, events, "No se pudo persistir eventos de vehiculo");
     }
 
-    private void write(Path path, Object value, String errorMessage) {
-        try {
-            Files.createDirectories(path.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), value);
-        } catch (IOException ex) {
-            throw new ApiException(errorMessage);
-        }
+
+
+
+
+    private Map<Long, TelemetrySnapshotResponse> defaultSnapshots() {
+        Map<Long, TelemetrySnapshotResponse> defaults = new LinkedHashMap<>();
+        defaults.put(12L, defaultSnapshot());
+        return defaults;
     }
 
+    private Map<Long, List<TemperaturePointResponse>> defaultHistoryMap() {
+        Map<Long, List<TemperaturePointResponse>> defaults = new LinkedHashMap<>();
+        defaults.put(12L, defaultHistory());
+        return defaults;
+    }
+
+    private Map<Long, List<VehicleEventResponse>> defaultEventsMap() {
+        Map<Long, List<VehicleEventResponse>> defaults = new LinkedHashMap<>();
+        defaults.put(12L, defaultEvents());
+        return defaults;
+    }
 
     private static int percent(int value, int total) {
         return total == 0 ? 0 : Math.round((value * 100.0f) / total);

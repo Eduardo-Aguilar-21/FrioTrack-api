@@ -6,6 +6,7 @@ import com.mt.friotrackapi.alerts.dto.AlertResponse;
 import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
+import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,13 +18,14 @@ import java.util.List;
 @Service
 public class AlertService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "alerts.json");
+    private final JsonStoreService jsonStoreService;
     private final List<AlertResponse> alerts = new ArrayList<>();
     private final ProtocolConfigService protocolConfigService;
 
-    public AlertService(ProtocolConfigService protocolConfigService) {
+    public AlertService(ProtocolConfigService protocolConfigService, JsonStoreService jsonStoreService) {
         this.protocolConfigService = protocolConfigService;
+        this.jsonStoreService = jsonStoreService;
         loadAlerts();
     }
 
@@ -172,26 +174,20 @@ public class AlertService {
     }
 
     private void loadAlerts() {
-        try {
-            if (Files.exists(storePath)) {
-                alerts.addAll(objectMapper.readValue(storePath.toFile(), new TypeReference<List<AlertResponse>>() {}));
-                return;
-            }
-
-            alerts.addAll(defaultAlerts());
-            saveAlerts();
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo cargar alertas persistidas");
-        }
+        alerts.addAll(jsonStoreService.read(
+                "alerts",
+                storePath,
+                new TypeReference<List<AlertResponse>>() {},
+                this::defaultAlerts,
+                "No se pudo cargar alertas persistidas",
+                "No se pudo persistir alertas"
+        ));
     }
 
+
+
     private void saveAlerts() {
-        try {
-            Files.createDirectories(storePath.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(storePath.toFile(), alerts);
-        } catch (IOException ex) {
-            throw new ApiException("No se pudo persistir alertas");
-        }
+        jsonStoreService.write("alerts", storePath, alerts, "No se pudo persistir alertas");
     }
 
     private List<AlertResponse> defaultAlerts() {
