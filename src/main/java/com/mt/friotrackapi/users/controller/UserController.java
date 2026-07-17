@@ -6,6 +6,7 @@ import com.mt.friotrackapi.users.dto.CreateUserRequest;
 import com.mt.friotrackapi.users.dto.UserResponse;
 import com.mt.friotrackapi.users.service.UserService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -41,12 +42,14 @@ public class UserController {
         return ApiResponse.ok(user);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
     public ApiResponse<UserResponse> create(@Valid @RequestBody CreateUserRequest request) {
         CreateUserRequest scoped = new CreateUserRequest(tenantAccessService.companyId(), request.username(), request.name(), request.email(), request.password(), request.roleId());
         return ApiResponse.ok("Usuario creado", userService.create(scoped));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}")
     public ApiResponse<UserResponse> update(@PathVariable Long id, @Valid @RequestBody CreateUserRequest request) {
         tenantAccessService.requireCompany(userService.findById(id).companyId());
@@ -54,6 +57,7 @@ public class UserController {
         return ApiResponse.ok("Usuario actualizado", userService.update(id, scoped));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/status/{status}")
     public ApiResponse<UserResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
         tenantAccessService.requireCompany(userService.findById(id).companyId());

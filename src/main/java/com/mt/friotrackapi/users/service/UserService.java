@@ -60,6 +60,9 @@ public class UserService {
 
     public UserResponse authenticate(String access, String password) {
         UserAccount account = findAccountByUsernameOrEmail(access);
+        if (!"ACTIVE".equalsIgnoreCase(account.status())) {
+            throw new AuthException("Usuario inactivo");
+        }
 
         if (isPasswordHash(account.password()) && passwordEncoder.matches(password, account.password())) {
             return account.toResponse();

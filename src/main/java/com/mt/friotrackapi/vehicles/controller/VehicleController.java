@@ -10,6 +10,7 @@ import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -45,18 +46,21 @@ public class VehicleController {
         return ApiResponse.ok(requireVehicle(id));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
     public ApiResponse<VehicleResponse> create(@Valid @RequestBody CreateVehicleRequest request) {
         CreateVehicleRequest scoped = scopedRequest(request);
         return ApiResponse.ok("Vehiculo creado", vehicleService.create(scoped));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}")
     public ApiResponse<VehicleResponse> update(@PathVariable Long id, @Valid @RequestBody CreateVehicleRequest request) {
         requireVehicle(id);
         return ApiResponse.ok("Vehiculo actualizado", vehicleService.update(id, scopedRequest(request)));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PatchMapping("/{id}/status/{status}")
     public ApiResponse<VehicleResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
         requireVehicle(id);

@@ -5,6 +5,7 @@ import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
 import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -50,18 +51,21 @@ public class AlertController {
         return ApiResponse.ok(alert);
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
     @PatchMapping("/{id}/ack")
     public ApiResponse<AlertResponse> acknowledge(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());
         return ApiResponse.ok("Alerta reconocida", alertService.acknowledge(id));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
     @PatchMapping("/{id}/resolve")
     public ApiResponse<AlertResponse> resolve(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());
         return ApiResponse.ok("Alerta resuelta", alertService.resolve(id));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());
