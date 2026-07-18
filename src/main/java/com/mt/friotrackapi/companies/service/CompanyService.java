@@ -37,6 +37,6 @@ public class CompanyService {
     }
 
     private CompanyResponse toResponse(CompanyEntity company) {
-        return new CompanyResponse(company.getId(), company.getName(), company.getSlug(), company.getStatus());
+        return new CompanyResponse(company.getId(), company.getName(), company.getSlug(), company.getStatus(), company.getWarningOfflineMinutes(), company.getCriticalOfflineMinutes());
     }
 }

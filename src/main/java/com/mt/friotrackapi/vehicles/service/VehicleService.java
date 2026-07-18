@@ -10,6 +10,8 @@ import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.entity.VehicleEntity;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,7 +65,7 @@ public class VehicleService {
                 request.code(),
                 request.plate(),
                 request.label(),
-                "EN_RANGO",
+                "SIN_COMUNICACION",
                 request.driver(),
                 request.imei(),
                 request.model(),
@@ -76,7 +78,7 @@ public class VehicleService {
                 "Sin datos",
                 "Cerrada",
                 "Encendido",
-                "Sin comunicacion"
+                "Nunca conectado"
         );
         entityManager.persist(vehicle);
         return toResponse(vehicle);
@@ -125,8 +127,19 @@ public class VehicleService {
             String lastCommunication
     ) {
         VehicleEntity current = entityById(id);
+        Instant now = Instant.now();
         String nextStatus = vehicleStatus(current.getCompany().getId(), currentTemperature, temperatureState, current.getStatus());
-        current.updateTelemetry(latitude, longitude, currentTemperature, temperatureState, doorState, coolingUnitState, lastCommunication, nextStatus);
+        if ("SIN_COMUNICACION".equalsIgnoreCase(nextStatus) && currentTemperature == null) {
+            nextStatus = "EN_RANGO";
+        }
+        current.updateTelemetry(latitude, longitude, currentTemperature, temperatureState, doorState, coolingUnitState, lastCommunication, now, nextStatus);
+        return toResponse(current);
+    }
+
+    @Transactional
+    public VehicleResponse markOffline(Long id) {
+        VehicleEntity current = entityById(id);
+        current.setStatus("SIN_COMUNICACION");
         return toResponse(current);
     }
 
@@ -171,6 +184,29 @@ public class VehicleService {
         return "EN_RANGO";
     }
 
+    private String lastCommunicationLabel(VehicleEntity vehicle) {
+        Instant lastSeenAt = vehicle.getLastSeenAt();
+        if (lastSeenAt == null) {
+            return vehicle.getLastCommunication() == null || vehicle.getLastCommunication().isBlank() ? "Nunca conectado" : vehicle.getLastCommunication();
+        }
+
+        long minutes = Math.max(0, Duration.between(lastSeenAt, Instant.now()).toMinutes());
+        if (minutes == 0) {
+            return "Ahora";
+        }
+        if (minutes == 1) {
+            return "Hace 1 min";
+        }
+        if (minutes < 60) {
+            return "Hace " + minutes + " min";
+        }
+        long hours = minutes / 60;
+        if (hours == 1) {
+            return "Hace 1 h";
+        }
+        return "Hace " + hours + " h";
+    }
+
     private Double parseTemperature(String value) {
         try {
             return Double.parseDouble(value.replace("°C", "").replace("C", "").trim());
@@ -199,7 +235,7 @@ public class VehicleService {
                 vehicle.getTemperatureState(),
                 vehicle.getDoorState(),
                 vehicle.getCoolingUnitState(),
-                vehicle.getLastCommunication()
+                lastCommunicationLabel(vehicle)
         );
     }
 }

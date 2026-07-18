@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.Instant;
 import jakarta.persistence.UniqueConstraint;
 
 @Entity
@@ -57,6 +58,8 @@ public class VehicleEntity {
     private String coolingUnitState;
     @Column(name = "last_communication")
     private String lastCommunication;
+    @Column(name = "last_seen_at")
+    private Instant lastSeenAt;
 
     protected VehicleEntity() {}
 
@@ -100,6 +103,7 @@ public class VehicleEntity {
     public String getDoorState() { return doorState; }
     public String getCoolingUnitState() { return coolingUnitState; }
     public String getLastCommunication() { return lastCommunication; }
+    public Instant getLastSeenAt() { return lastSeenAt; }
 
     public void updateIdentity(CompanyEntity company, String code, String plate, String label, String driver, String deviceId, String model, Integer year, String unitType, Integer loadCapacityKg) {
         this.company = company;
@@ -115,8 +119,9 @@ public class VehicleEntity {
     }
 
     public void setStatus(String status) { this.status = status; }
+    public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
 
-    public void updateTelemetry(Double latitude, Double longitude, String currentTemperature, String temperatureState, String doorState, String coolingUnitState, String lastCommunication, String status) {
+    public void updateTelemetry(Double latitude, Double longitude, String currentTemperature, String temperatureState, String doorState, String coolingUnitState, String lastCommunication, Instant lastSeenAt, String status) {
         if (latitude != null) this.latitude = latitude;
         if (longitude != null) this.longitude = longitude;
         if (currentTemperature != null) this.currentTemperature = currentTemperature;
@@ -124,6 +129,7 @@ public class VehicleEntity {
         if (doorState != null) this.doorState = doorState;
         if (coolingUnitState != null) this.coolingUnitState = coolingUnitState;
         if (lastCommunication != null) this.lastCommunication = lastCommunication;
+        if (lastSeenAt != null) this.lastSeenAt = lastSeenAt;
         this.status = status;
     }
 }

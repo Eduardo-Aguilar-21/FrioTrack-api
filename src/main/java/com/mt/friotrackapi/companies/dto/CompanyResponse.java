@@ -4,6 +4,8 @@ public record CompanyResponse(
         Long id,
         String name,
         String taxId,
-        String status
+        String status,
+        Integer warningOfflineMinutes,
+        Integer criticalOfflineMinutes
 ) {
 }

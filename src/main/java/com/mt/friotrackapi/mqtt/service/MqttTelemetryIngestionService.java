@@ -52,6 +52,9 @@ public class MqttTelemetryIngestionService {
                 "Ahora"
         );
 
+        alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK", updatedVehicle.code());
+        alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK_WARNING", updatedVehicle.code());
+
         processTemperature(updatedVehicle, data);
         processDoor(updatedVehicle, data);
         processCooling(updatedVehicle, data);

@@ -167,7 +167,7 @@ public class TelemetryService {
         if (!protocolConfigService.isFieldEnabled(vehicle.companyId(), "temperature")) {
             return List.of();
         }
-        return history.getOrDefault(vehicleId, defaultHistory());
+        return history.getOrDefault(vehicleId, List.of());
     }
 
     public List<TemperaturePointResponse> saveTemperatureHistory(SaveTemperatureHistoryRequest request) {
@@ -232,7 +232,7 @@ public class TelemetryService {
 
     public List<VehicleEventResponse> events(Long vehicleId) {
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
-        return events.getOrDefault(vehicleId, defaultEvents()).stream()
+        return events.getOrDefault(vehicleId, List.of()).stream()
                 .filter(event -> protocolConfigService.isEventTypeEnabled(vehicle.companyId(), event.type()))
                 .toList();
     }
