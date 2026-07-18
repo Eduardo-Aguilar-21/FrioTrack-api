@@ -472,8 +472,9 @@ public class ProtocolConfigService {
         }
         String normalized = clean(dataType).toUpperCase();
         return switch (normalized) {
-            case "NUMBER", "BOOLEAN", "STRING" -> normalized;
-            default -> "STRING";
+            case "BOOLEAN" -> "BOOLEAN";
+            case "NUMBER" -> "NUMBER";
+            default -> "NUMBER";
         };
     }
 

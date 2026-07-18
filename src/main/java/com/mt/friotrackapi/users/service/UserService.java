@@ -1,76 +1,69 @@
 package com.mt.friotrackapi.users.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.common.exception.AuthException;
-import com.mt.friotrackapi.companies.dto.CompanyResponse;
+import com.mt.friotrackapi.companies.entity.CompanyEntity;
 import com.mt.friotrackapi.companies.service.CompanyService;
-import com.mt.friotrackapi.roles.dto.RoleResponse;
+import com.mt.friotrackapi.roles.entity.RoleEntity;
 import com.mt.friotrackapi.roles.service.RoleService;
 import com.mt.friotrackapi.users.dto.CreateUserRequest;
 import com.mt.friotrackapi.users.dto.UserResponse;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import com.mt.friotrackapi.persistence.service.JsonStoreService;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
+import com.mt.friotrackapi.users.entity.UserEntity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class UserService {
 
     private final RoleService roleService;
     private final CompanyService companyService;
     private final PasswordEncoder passwordEncoder;
-    private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "users.json");
-    private final JsonStoreService jsonStoreService;
-    private final List<UserAccount> users = new ArrayList<>();
 
-    public UserService(RoleService roleService, CompanyService companyService, PasswordEncoder passwordEncoder, JsonStoreService jsonStoreService) {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public UserService(RoleService roleService, CompanyService companyService, PasswordEncoder passwordEncoder) {
         this.roleService = roleService;
         this.companyService = companyService;
         this.passwordEncoder = passwordEncoder;
-        this.jsonStoreService = jsonStoreService;
-        loadUsers();
     }
 
     public List<UserResponse> findAll(Long companyId) {
         if (companyId == null) {
-            return users.stream().map(UserAccount::toResponse).toList();
+            return entityManager.createQuery("select u from UserEntity u order by u.id", UserEntity.class).getResultList().stream().map(this::toResponse).toList();
         }
 
         companyService.findById(companyId);
-        return users.stream()
-                .filter(user -> user.companyId().equals(companyId))
-                .map(UserAccount::toResponse)
-                .toList();
+        return entityManager.createQuery("select u from UserEntity u where u.company.id = :companyId order by u.id", UserEntity.class).setParameter("companyId", companyId).getResultList().stream().map(this::toResponse).toList();
     }
 
     public UserResponse findById(Long id) {
-        return findAccountById(id).toResponse();
+        return toResponse(entityById(id));
     }
 
     public UserResponse findByUsernameOrEmail(String access) {
-        return findAccountByUsernameOrEmail(access).toResponse();
+        return toResponse(findAccountByUsernameOrEmail(access));
     }
 
+    @Transactional
     public UserResponse authenticate(String access, String password) {
-        UserAccount account = findAccountByUsernameOrEmail(access);
-        if (!"ACTIVE".equalsIgnoreCase(account.status())) {
+        UserEntity account = findAccountByUsernameOrEmail(access);
+        if (!"ACTIVE".equalsIgnoreCase(account.getStatus())) {
             throw new AuthException("Usuario inactivo");
         }
 
-        if (isPasswordHash(account.password()) && passwordEncoder.matches(password, account.password())) {
-            return account.toResponse();
+        if (isPasswordHash(account.getPassword()) && passwordEncoder.matches(password, account.getPassword())) {
+            return toResponse(account);
         }
 
-        if (!isPasswordHash(account.password()) && account.password().equals(password)) {
-            migratePasswordHash(account);
-            return account.toResponse();
+        if (!isPasswordHash(account.getPassword()) && account.getPassword().equals(password)) {
+            account.setPassword(passwordEncoder.encode(account.getPassword()));
+            return toResponse(account);
         }
 
         throw new AuthException("Credenciales invalidas");
@@ -80,91 +73,72 @@ public class UserService {
         return findById(1L);
     }
 
+    @Transactional
     public UserResponse create(CreateUserRequest request) {
-        CompanyResponse company = companyService.findById(request.companyId());
-        RoleResponse role = roleService.findById(request.roleId());
+        CompanyEntity company = companyService.entityById(request.companyId());
+        RoleEntity role = roleService.entityById(request.roleId());
         if (request.password() == null || request.password().isBlank()) {
             throw new ApiException("La contraseña es obligatoria");
         }
 
-        boolean exists = users.stream()
-                .anyMatch(user -> user.companyId().equals(request.companyId())
-                        && (user.username().equalsIgnoreCase(request.username())
-                        || user.email().equalsIgnoreCase(request.email())));
-
+        boolean exists = count("select count(u) from UserEntity u where u.company.id = :companyId and (lower(u.username) = lower(:username) or lower(u.email) = lower(:email))", request.companyId(), request.username(), request.email(), null) > 0;
         if (exists) {
             throw new ApiException("El usuario o correo ya existe en la empresa");
         }
 
-        UserAccount user = new UserAccount(
-                nextId(),
-                company.id(),
-                company.name(),
+        UserEntity user = new UserEntity(
+                company,
                 request.username(),
                 request.name(),
                 request.email(),
                 passwordEncoder.encode(request.password()),
-                role.name(),
+                role,
                 "ACTIVE"
         );
-        users.add(user);
-        saveUsers();
-        return user.toResponse();
+        entityManager.persist(user);
+        return toResponse(user);
     }
 
-
+    @Transactional
     public UserResponse update(Long id, CreateUserRequest request) {
-        UserAccount current = findAccountById(id);
-        CompanyResponse company = companyService.findById(request.companyId());
-        RoleResponse role = roleService.findById(request.roleId());
+        UserEntity current = entityById(id);
+        CompanyEntity company = companyService.entityById(request.companyId());
+        RoleEntity role = roleService.entityById(request.roleId());
 
-        boolean exists = users.stream()
-                .anyMatch(user -> !user.id().equals(id)
-                        && user.companyId().equals(request.companyId())
-                        && (user.username().equalsIgnoreCase(request.username())
-                        || user.email().equalsIgnoreCase(request.email())));
-
+        boolean exists = count("select count(u) from UserEntity u where u.company.id = :companyId and u.id <> :id and (lower(u.username) = lower(:username) or lower(u.email) = lower(:email))", request.companyId(), request.username(), request.email(), id) > 0;
         if (exists) {
             throw new ApiException("El usuario o correo ya existe en la empresa");
         }
 
         String password = request.password() == null || request.password().isBlank()
-                ? current.password()
+                ? current.getPassword()
                 : passwordEncoder.encode(request.password());
 
-        UserAccount updated = new UserAccount(
-                current.id(),
-                company.id(),
-                company.name(),
-                request.username(),
-                request.name(),
-                request.email(),
-                password,
-                role.name(),
-                current.status()
-        );
-        users.set(users.indexOf(current), updated);
-        saveUsers();
-        return updated.toResponse();
+        current.update(company, request.username(), request.name(), request.email(), password, role);
+        return toResponse(current);
     }
 
+    @Transactional
     public UserResponse setStatus(Long id, String status) {
-        UserAccount current = findAccountById(id);
-        String nextStatus = normalizeStatus(status);
-        UserAccount updated = new UserAccount(
-                current.id(),
-                current.companyId(),
-                current.companyName(),
-                current.username(),
-                current.name(),
-                current.email(),
-                current.password(),
-                current.role(),
-                nextStatus
-        );
-        users.set(users.indexOf(current), updated);
-        saveUsers();
-        return updated.toResponse();
+        UserEntity current = entityById(id);
+        current.setStatus(normalizeStatus(status));
+        return toResponse(current);
+    }
+
+    private UserEntity entityById(Long id) {
+        UserEntity user = entityManager.find(UserEntity.class, id);
+        if (user == null) {
+            throw new ApiException("Usuario no encontrado");
+        }
+        return user;
+    }
+
+    private UserEntity findAccountByUsernameOrEmail(String access) {
+        return entityManager.createQuery("select u from UserEntity u where lower(u.username) = lower(:access) or lower(u.email) = lower(:access)", UserEntity.class)
+                .setParameter("access", access)
+                .getResultStream()
+                .findFirst()
+                .orElseThrow(() -> new ApiException("Usuario no encontrado"));
     }
 
     private String normalizeStatus(String status) {
@@ -175,83 +149,31 @@ public class UserService {
         return normalized.equals("ACTIVE") ? "ACTIVE" : "INACTIVE";
     }
 
-    private Long nextId() {
-        return users.stream().mapToLong(UserAccount::id).max().orElse(0L) + 1;
-    }
-
-    private void loadUsers() {
-        users.addAll(jsonStoreService.read(
-                "users",
-                storePath,
-                new TypeReference<List<UserAccount>>() {},
-                this::defaultUsers,
-                "No se pudo cargar usuarios persistidos",
-                "No se pudo persistir usuarios"
-        ));
-    }
-
-
-
-    private void saveUsers() {
-        jsonStoreService.write("users", storePath, users, "No se pudo persistir usuarios");
-    }
-
-    private List<UserAccount> defaultUsers() {
-        return List.of(
-                new UserAccount(1L, 1L, "FrioTrack Demo", "admin", "Administrador", "admin@friotrack.pe", passwordEncoder.encode("secret123"), "ADMIN", "ACTIVE"),
-                new UserAccount(2L, 1L, "FrioTrack Demo", "operador", "Operador Lima", "operador@friotrack.pe", passwordEncoder.encode("secret123"), "OPERADOR", "ACTIVE"),
-                new UserAccount(3L, 1L, "FrioTrack Demo", "supervisor", "Supervisor", "supervisor@friotrack.pe", passwordEncoder.encode("secret123"), "LECTOR", "ACTIVE"),
-                new UserAccount(4L, 2L, "Cadena Fria Norte", "admin-norte", "Administrador Norte", "admin@norte.pe", passwordEncoder.encode("secret123"), "ADMIN", "ACTIVE")
-        );
-    }
-
-    private UserAccount findAccountById(Long id) {
-        return users.stream()
-                .filter(user -> user.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Usuario no encontrado"));
-    }
-
-    private UserAccount findAccountByUsernameOrEmail(String access) {
-        return users.stream()
-                .filter(user -> user.username().equalsIgnoreCase(access) || user.email().equalsIgnoreCase(access))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Usuario no encontrado"));
-    }
-
     private boolean isPasswordHash(String password) {
         return password != null && (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$"));
     }
 
-    private void migratePasswordHash(UserAccount account) {
-        UserAccount updated = new UserAccount(
-                account.id(),
-                account.companyId(),
-                account.companyName(),
-                account.username(),
-                account.name(),
-                account.email(),
-                passwordEncoder.encode(account.password()),
-                account.role(),
-                account.status()
-        );
-        users.set(users.indexOf(account), updated);
-        saveUsers();
+    private long count(String query, Long companyId, String username, String email, Long id) {
+        var typedQuery = entityManager.createQuery(query, Long.class)
+                .setParameter("companyId", companyId)
+                .setParameter("username", username)
+                .setParameter("email", email);
+        if (id != null) {
+            typedQuery.setParameter("id", id);
+        }
+        return typedQuery.getSingleResult();
     }
 
-    public record UserAccount(
-            Long id,
-            Long companyId,
-            String companyName,
-            String username,
-            String name,
-            String email,
-            String password,
-            String role,
-            String status
-    ) {
-        private UserResponse toResponse() {
-            return new UserResponse(id, companyId, companyName, username, name, email, role, status);
-        }
+    private UserResponse toResponse(UserEntity user) {
+        return new UserResponse(
+                user.getId(),
+                user.getCompany().getId(),
+                user.getCompany().getName(),
+                user.getUsername(),
+                user.getName(),
+                user.getEmail(),
+                user.getRole().getName(),
+                user.getStatus()
+        );
     }
 }

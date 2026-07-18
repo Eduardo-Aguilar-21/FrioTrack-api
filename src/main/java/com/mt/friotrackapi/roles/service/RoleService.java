@@ -2,27 +2,41 @@ package com.mt.friotrackapi.roles.service;
 
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.roles.dto.RoleResponse;
-import org.springframework.stereotype.Service;
-
+import com.mt.friotrackapi.roles.entity.RoleEntity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class RoleService {
 
-    private final List<RoleResponse> roles = List.of(
-            new RoleResponse(1L, "ADMIN", "Administrador del sistema"),
-            new RoleResponse(2L, "OPERADOR", "Operador de monitoreo"),
-            new RoleResponse(3L, "LECTOR", "Usuario de solo lectura")
-    );
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public List<RoleResponse> findAll() {
-        return roles;
+        return entityManager.createQuery("select r from RoleEntity r order by r.id", RoleEntity.class)
+                .getResultList()
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     public RoleResponse findById(Long id) {
-        return roles.stream()
-                .filter(role -> role.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Rol no encontrado"));
+        return toResponse(entityById(id));
+    }
+
+    public RoleEntity entityById(Long id) {
+        RoleEntity role = entityManager.find(RoleEntity.class, id);
+        if (role == null) {
+            throw new ApiException("Rol no encontrado");
+        }
+        return role;
+    }
+
+    private RoleResponse toResponse(RoleEntity role) {
+        return new RoleResponse(role.getId(), role.getName(), role.getDescription());
     }
 }

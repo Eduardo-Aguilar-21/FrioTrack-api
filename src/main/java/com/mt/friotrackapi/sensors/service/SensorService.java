@@ -1,134 +1,116 @@
 package com.mt.friotrackapi.sensors.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.companies.entity.CompanyEntity;
 import com.mt.friotrackapi.companies.service.CompanyService;
 import com.mt.friotrackapi.sensors.dto.CreateSensorRequest;
 import com.mt.friotrackapi.sensors.dto.SensorResponse;
-import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.sensors.entity.SensorParameterEntity;
+import com.mt.friotrackapi.vehicles.entity.VehicleEntity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
-import com.mt.friotrackapi.persistence.service.JsonStoreService;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class SensorService {
 
     private final CompanyService companyService;
     private final VehicleService vehicleService;
-    private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "sensors.json");
-    private final JsonStoreService jsonStoreService;
-    private final List<SensorResponse> sensors = new ArrayList<>();
 
-    public SensorService(CompanyService companyService, VehicleService vehicleService, JsonStoreService jsonStoreService) {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public SensorService(CompanyService companyService, VehicleService vehicleService) {
         this.companyService = companyService;
         this.vehicleService = vehicleService;
-        this.jsonStoreService = jsonStoreService;
-        loadSensors();
     }
 
     public List<SensorResponse> findAll(Long companyId) {
         if (companyId == null) {
-            return sensors;
+            return entityManager.createQuery("select s from SensorParameterEntity s order by s.id", SensorParameterEntity.class).getResultList().stream().map(this::toResponse).toList();
         }
 
         companyService.findById(companyId);
-        return sensors.stream()
-                .filter(sensor -> sensor.companyId().equals(companyId))
-                .toList();
+        return entityManager.createQuery("select s from SensorParameterEntity s where s.company.id = :companyId order by s.id", SensorParameterEntity.class).setParameter("companyId", companyId).getResultList().stream().map(this::toResponse).toList();
     }
 
     public SensorResponse findById(Long id) {
-        return sensors.stream()
-                .filter(sensor -> sensor.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Sensor no encontrado"));
+        return toResponse(entityById(id));
     }
 
+    @Transactional
     public SensorResponse create(CreateSensorRequest request) {
-        companyService.findById(request.companyId());
-        VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
-        if (!vehicle.companyId().equals(request.companyId())) {
+        CompanyEntity company = companyService.entityById(request.companyId());
+        VehicleEntity vehicle = vehicleService.entityById(request.vehicleId());
+        if (!vehicle.getCompany().getId().equals(request.companyId())) {
             throw new ApiException("El vehiculo no pertenece a la empresa");
         }
 
-        boolean exists = sensors.stream()
-                .anyMatch(sensor -> sensor.companyId().equals(request.companyId()) && sensor.code().equalsIgnoreCase(request.code()));
-        if (exists) {
-            throw new ApiException("El sensor ya existe en la empresa");
+        if (countExisting(request.companyId(), request.code(), null) > 0) {
+            throw new ApiException("El parametro ya existe en la empresa");
         }
 
-        SensorResponse sensor = new SensorResponse(
-                nextId(),
-                request.companyId(),
-                request.vehicleId(),
+        SensorParameterEntity sensor = new SensorParameterEntity(
+                company,
+                vehicle,
                 request.code(),
-                vehicle.label(),
                 request.type(),
                 request.unit(),
                 "Sin lectura",
                 "ACTIVE"
         );
-        sensors.add(sensor);
-        saveSensors();
-        return sensor;
+        entityManager.persist(sensor);
+        return toResponse(sensor);
     }
 
-
+    @Transactional
     public SensorResponse update(Long id, CreateSensorRequest request) {
-        SensorResponse current = findById(id);
-        companyService.findById(request.companyId());
-        VehicleResponse vehicle = vehicleService.findById(request.vehicleId());
-        if (!vehicle.companyId().equals(request.companyId())) {
+        SensorParameterEntity current = entityById(id);
+        CompanyEntity company = companyService.entityById(request.companyId());
+        VehicleEntity vehicle = vehicleService.entityById(request.vehicleId());
+        if (!vehicle.getCompany().getId().equals(request.companyId())) {
             throw new ApiException("El vehiculo no pertenece a la empresa");
         }
 
-        boolean exists = sensors.stream()
-                .anyMatch(sensor -> !sensor.id().equals(id)
-                        && sensor.companyId().equals(request.companyId())
-                        && sensor.code().equalsIgnoreCase(request.code()));
-        if (exists) {
-            throw new ApiException("El sensor ya existe en la empresa");
+        if (countExisting(request.companyId(), request.code(), id) > 0) {
+            throw new ApiException("El parametro ya existe en la empresa");
         }
 
-        SensorResponse updated = new SensorResponse(
-                current.id(),
-                request.companyId(),
-                request.vehicleId(),
-                request.code(),
-                vehicle.label(),
-                request.type(),
-                request.unit(),
-                current.lastValue(),
-                current.status()
-        );
-        sensors.set(sensors.indexOf(current), updated);
-        saveSensors();
-        return updated;
+        current.update(company, vehicle, request.code(), request.type(), request.unit());
+        return toResponse(current);
     }
 
+    @Transactional
     public SensorResponse setStatus(Long id, String status) {
-        SensorResponse current = findById(id);
-        SensorResponse updated = new SensorResponse(
-                current.id(),
-                current.companyId(),
-                current.vehicleId(),
-                current.code(),
-                current.vehicleLabel(),
-                current.type(),
-                current.unit(),
-                current.lastValue(),
-                normalizeStatus(status)
-        );
-        sensors.set(sensors.indexOf(current), updated);
-        saveSensors();
-        return updated;
+        SensorParameterEntity current = entityById(id);
+        current.setStatus(normalizeStatus(status));
+        return toResponse(current);
+    }
+
+    private SensorParameterEntity entityById(Long id) {
+        SensorParameterEntity sensor = entityManager.find(SensorParameterEntity.class, id);
+        if (sensor == null) {
+            throw new ApiException("Parametro no encontrado");
+        }
+        return sensor;
+    }
+
+    private long countExisting(Long companyId, String code, Long excludedId) {
+        String query = "select count(s) from SensorParameterEntity s where s.company.id = :companyId and lower(s.code) = lower(:code)";
+        if (excludedId != null) {
+            query += " and s.id <> :excludedId";
+        }
+        var typedQuery = entityManager.createQuery(query, Long.class)
+                .setParameter("companyId", companyId)
+                .setParameter("code", code);
+        if (excludedId != null) {
+            typedQuery.setParameter("excludedId", excludedId);
+        }
+        return typedQuery.getSingleResult();
     }
 
     private String normalizeStatus(String status) {
@@ -139,32 +121,17 @@ public class SensorService {
         return normalized.equals("ACTIVE") ? "ACTIVE" : "INACTIVE";
     }
 
-    private Long nextId() {
-        return sensors.stream().mapToLong(SensorResponse::id).max().orElse(0L) + 1;
-    }
-
-    private void loadSensors() {
-        sensors.addAll(jsonStoreService.read(
-                "sensors",
-                storePath,
-                new TypeReference<List<SensorResponse>>() {},
-                this::defaultSensors,
-                "No se pudo cargar sensores persistidos",
-                "No se pudo persistir sensores"
-        ));
-    }
-
-
-
-    private void saveSensors() {
-        jsonStoreService.write("sensors", storePath, sensors, "No se pudo persistir sensores");
-    }
-
-    private List<SensorResponse> defaultSensors() {
-        return List.of(
-                new SensorResponse(1L, 1L, 12L, "TMP-001", "Camion 12 - ABC123", "Temperatura", "°C", "9.8 °C", "ACTIVE"),
-                new SensorResponse(2L, 1L, 12L, "HUM-014", "Camion 12 - ABC123", "Humedad", "%", "45 %", "ACTIVE"),
-                new SensorResponse(3L, 1L, 7L, "DR-032", "Camion 07 - DEF456", "Puerta", "estado", "Abierta", "ACTIVE")
+    private SensorResponse toResponse(SensorParameterEntity sensor) {
+        return new SensorResponse(
+                sensor.getId(),
+                sensor.getCompany().getId(),
+                sensor.getVehicle().getId(),
+                sensor.getCode(),
+                sensor.getVehicle().getLabel(),
+                sensor.getType(),
+                sensor.getUnit(),
+                sensor.getLastValue(),
+                sensor.getStatus()
         );
     }
 }

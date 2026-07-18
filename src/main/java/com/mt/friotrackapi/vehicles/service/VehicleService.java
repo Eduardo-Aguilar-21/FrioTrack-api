@@ -1,69 +1,65 @@
 package com.mt.friotrackapi.vehicles.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.companies.entity.CompanyEntity;
 import com.mt.friotrackapi.companies.service.CompanyService;
-import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
-import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
-import com.mt.friotrackapi.persistence.service.JsonStoreService;
 import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
+import com.mt.friotrackapi.vehicles.dto.CreateVehicleRequest;
+import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.vehicles.entity.VehicleEntity;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class VehicleService {
 
     private final CompanyService companyService;
-    private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "vehicles.json");
-    private final JsonStoreService jsonStoreService;
     private final ProtocolConfigService protocolConfigService;
-    private final List<VehicleResponse> vehicles = new ArrayList<>();
 
-    public VehicleService(CompanyService companyService, JsonStoreService jsonStoreService, ProtocolConfigService protocolConfigService) {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public VehicleService(CompanyService companyService, ProtocolConfigService protocolConfigService) {
         this.companyService = companyService;
-        this.jsonStoreService = jsonStoreService;
         this.protocolConfigService = protocolConfigService;
-        loadVehicles();
     }
 
     public List<VehicleResponse> findAll(Long companyId) {
         if (companyId == null) {
-            return vehicles;
+            return entityManager.createQuery("select v from VehicleEntity v order by v.id", VehicleEntity.class).getResultList().stream().map(this::toResponse).toList();
         }
 
         companyService.findById(companyId);
-        return vehicles.stream()
-                .filter(vehicle -> vehicle.companyId().equals(companyId))
-                .toList();
+        return entityManager.createQuery("select v from VehicleEntity v where v.company.id = :companyId order by v.id", VehicleEntity.class).setParameter("companyId", companyId).getResultList().stream().map(this::toResponse).toList();
     }
 
     public VehicleResponse findById(Long id) {
-        return vehicles.stream()
-                .filter(vehicle -> vehicle.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Vehiculo no encontrado"));
+        return toResponse(entityById(id));
     }
 
-    public VehicleResponse create(CreateVehicleRequest request) {
-        companyService.findById(request.companyId());
-        boolean exists = vehicles.stream()
-                .anyMatch(vehicle -> vehicle.companyId().equals(request.companyId())
-                        && (vehicle.code().equalsIgnoreCase(request.code()) || vehicle.plate().equalsIgnoreCase(request.plate())));
+    public VehicleEntity entityById(Long id) {
+        VehicleEntity vehicle = entityManager.find(VehicleEntity.class, id);
+        if (vehicle == null) {
+            throw new ApiException("Vehiculo no encontrado");
+        }
+        return vehicle;
+    }
 
+    @Transactional
+    public VehicleResponse create(CreateVehicleRequest request) {
+        CompanyEntity company = companyService.entityById(request.companyId());
+        boolean exists = countExisting(request.companyId(), request.code(), request.plate(), null) > 0;
         if (exists) {
             throw new ApiException("El vehiculo ya existe en la empresa");
         }
 
-        VehicleResponse vehicle = new VehicleResponse(
-                nextId(),
-                request.companyId(),
+        VehicleEntity vehicle = new VehicleEntity(
+                company,
                 request.code(),
                 request.plate(),
                 request.label(),
@@ -82,78 +78,42 @@ public class VehicleService {
                 "Encendido",
                 "Sin comunicacion"
         );
-        vehicles.add(vehicle);
-        saveVehicles();
-        return vehicle;
+        entityManager.persist(vehicle);
+        return toResponse(vehicle);
     }
 
-
+    @Transactional
     public VehicleResponse update(Long id, CreateVehicleRequest request) {
-        VehicleResponse current = findById(id);
-        companyService.findById(request.companyId());
-        boolean exists = vehicles.stream()
-                .anyMatch(vehicle -> !vehicle.id().equals(id)
-                        && vehicle.companyId().equals(request.companyId())
-                        && (vehicle.code().equalsIgnoreCase(request.code()) || vehicle.plate().equalsIgnoreCase(request.plate())));
-
+        VehicleEntity current = entityById(id);
+        CompanyEntity company = companyService.entityById(request.companyId());
+        boolean exists = countExisting(request.companyId(), request.code(), request.plate(), id) > 0;
         if (exists) {
             throw new ApiException("El vehiculo ya existe en la empresa");
         }
 
-        VehicleResponse updated = new VehicleResponse(
-                current.id(),
-                request.companyId(),
+        current.updateIdentity(
+                company,
                 request.code(),
                 request.plate(),
                 request.label(),
-                current.status(),
                 request.driver(),
                 request.imei(),
                 request.model(),
                 request.year(),
                 request.unitType(),
-                request.loadCapacityKg(),
-                current.latitude(),
-                current.longitude(),
-                current.currentTemperature(),
-                current.temperatureState(),
-                current.doorState(),
-                current.coolingUnitState(),
-                current.lastCommunication()
+                request.loadCapacityKg()
         );
-        vehicles.set(vehicles.indexOf(current), updated);
-        saveVehicles();
-        return updated;
+        return toResponse(current);
     }
 
+    @Transactional
     public VehicleResponse setStatus(Long id, String status) {
-        VehicleResponse current = findById(id);
-        VehicleResponse updated = new VehicleResponse(
-                current.id(),
-                current.companyId(),
-                current.code(),
-                current.plate(),
-                current.label(),
-                normalizeStatus(status),
-                current.driver(),
-                current.imei(),
-                current.model(),
-                current.year(),
-                current.unitType(),
-                current.loadCapacityKg(),
-                current.latitude(),
-                current.longitude(),
-                current.currentTemperature(),
-                current.temperatureState(),
-                current.doorState(),
-                current.coolingUnitState(),
-                current.lastCommunication()
-        );
-        vehicles.set(vehicles.indexOf(current), updated);
-        saveVehicles();
-        return updated;
+        VehicleEntity current = entityById(id);
+        current.setStatus(normalizeStatus(status));
+        return toResponse(current);
     }
 
+    @Transactional
     public VehicleResponse updateTelemetryState(
             Long id,
             Double latitude,
@@ -164,32 +124,25 @@ public class VehicleService {
             String coolingUnitState,
             String lastCommunication
     ) {
-        VehicleResponse current = findById(id);
-        String nextStatus = vehicleStatus(current.companyId(), currentTemperature, temperatureState, current.status());
-        VehicleResponse updated = new VehicleResponse(
-                current.id(),
-                current.companyId(),
-                current.code(),
-                current.plate(),
-                current.label(),
-                nextStatus,
-                current.driver(),
-                current.imei(),
-                current.model(),
-                current.year(),
-                current.unitType(),
-                current.loadCapacityKg(),
-                latitude == null ? current.latitude() : latitude,
-                longitude == null ? current.longitude() : longitude,
-                currentTemperature == null ? current.currentTemperature() : currentTemperature,
-                temperatureState == null ? current.temperatureState() : temperatureState,
-                doorState == null ? current.doorState() : doorState,
-                coolingUnitState == null ? current.coolingUnitState() : coolingUnitState,
-                lastCommunication == null ? current.lastCommunication() : lastCommunication
-        );
-        vehicles.set(vehicles.indexOf(current), updated);
-        saveVehicles();
-        return updated;
+        VehicleEntity current = entityById(id);
+        String nextStatus = vehicleStatus(current.getCompany().getId(), currentTemperature, temperatureState, current.getStatus());
+        current.updateTelemetry(latitude, longitude, currentTemperature, temperatureState, doorState, coolingUnitState, lastCommunication, nextStatus);
+        return toResponse(current);
+    }
+
+    private long countExisting(Long companyId, String code, String plate, Long excludedId) {
+        String query = "select count(v) from VehicleEntity v where v.company.id = :companyId and (lower(v.code) = lower(:code) or lower(v.plate) = lower(:plate))";
+        if (excludedId != null) {
+            query += " and v.id <> :excludedId";
+        }
+        var typedQuery = entityManager.createQuery(query, Long.class)
+                .setParameter("companyId", companyId)
+                .setParameter("code", code)
+                .setParameter("plate", plate);
+        if (excludedId != null) {
+            typedQuery.setParameter("excludedId", excludedId);
+        }
+        return typedQuery.getSingleResult();
     }
 
     private String normalizeStatus(String status) {
@@ -226,36 +179,27 @@ public class VehicleService {
         }
     }
 
-    private Long nextId() {
-        return vehicles.stream().mapToLong(VehicleResponse::id).max().orElse(0L) + 1;
-    }
-
-    private void loadVehicles() {
-        vehicles.addAll(jsonStoreService.read(
-                "vehicles",
-                storePath,
-                new TypeReference<List<VehicleResponse>>() {},
-                this::defaultVehicles,
-                "No se pudo cargar vehiculos persistidos",
-                "No se pudo persistir vehiculos"
-        ));
-    }
-
-
-
-    private void saveVehicles() {
-        jsonStoreService.write("vehicles", storePath, vehicles, "No se pudo persistir vehiculos");
-    }
-
-    private List<VehicleResponse> defaultVehicles() {
-        return List.of(
-                new VehicleResponse(1L, 1L, "AAA111", "AAA-111", "Camion 01 - AAA111", "EN_RANGO", "Carlos Ruiz", "865612040015601", "Hino 500", 2022, "Refrigerado", 12000, -11.985, -77.065, "2.1 °C", "En rango", "Cerrada", "Encendido", "Hace 1 min"),
-                new VehicleResponse(2L, 1L, "BBB222", "BBB-222", "Camion 02 - BBB222", "EN_RANGO", "Luis Mendoza", "865612040015602", "Hino 500", 2021, "Refrigerado", 12000, -12.010, -77.115, "3.4 °C", "En rango", "Cerrada", "Encendido", "Hace 2 min"),
-                new VehicleResponse(3L, 1L, "GHI789", "GHI-789", "Camion 03 - GHI789", "ADVERTENCIA", "Marco Salas", "865612040015603", "Isuzu NPR", 2020, "Refrigerado", 9000, -12.027, -77.014, "6.7 °C", "Fuera de rango", "Cerrada", "Encendido", "Hace 2 min"),
-                new VehicleResponse(7L, 1L, "DEF456", "DEF-456", "Camion 07 - DEF456", "ADVERTENCIA", "Rafael Torres", "865612040015607", "Hino 500", 2022, "Refrigerado", 12000, -12.071, -76.995, "4.8 °C", "En rango", "Abierta", "Encendido", "Hace 3 min"),
-                new VehicleResponse(12L, 1L, "ABC123", "ABC-123", "Camion 12 - ABC123", "CRITICO", "Juan Perez", "865612040015678", "Hino 500", 2022, "Refrigerado", 12000, -12.0576, -76.9649, "9.8 °C", "Fuera de rango", "Cerrada", "Encendido", "Hace 1 min"),
-                new VehicleResponse(21L, 1L, "MNO321", "MNO-321", "Camion 21 - MNO321", "SIN_COMUNICACION", "Pedro Vargas", "865612040015621", "Foton Aumark", 2019, "Refrigerado", 8000, -12.115, -77.035, null, "Sin datos", "--", "--", "Hace 25 min"),
-                new VehicleResponse(101L, 2L, "NOR111", "NOR-111", "Camion Norte 01 - NOR111", "ADVERTENCIA", "Ana Castro", "865612040015701", "Hino 500", 2022, "Refrigerado", 12000, -8.1116, -79.0288, "6.2 °C", "Fuera de rango", "Cerrada", "Encendido", "Hace 4 min")
+    private VehicleResponse toResponse(VehicleEntity vehicle) {
+        return new VehicleResponse(
+                vehicle.getId(),
+                vehicle.getCompany().getId(),
+                vehicle.getCode(),
+                vehicle.getPlate(),
+                vehicle.getLabel(),
+                vehicle.getStatus(),
+                vehicle.getDriver(),
+                vehicle.getDeviceId(),
+                vehicle.getModel(),
+                vehicle.getYear(),
+                vehicle.getUnitType(),
+                vehicle.getLoadCapacityKg(),
+                vehicle.getLatitude(),
+                vehicle.getLongitude(),
+                vehicle.getCurrentTemperature(),
+                vehicle.getTemperatureState(),
+                vehicle.getDoorState(),
+                vehicle.getCoolingUnitState(),
+                vehicle.getLastCommunication()
         );
     }
 }

@@ -12,6 +12,7 @@ public record AlertResponse(
         String occurredAtLabel,
         String status,
         String duration,
+        String reading,
         String icon
 ) {
 }

@@ -28,8 +28,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         try {
             String authorization = request.getHeader("Authorization");
+            String path = request.getRequestURI();
             if (authorization != null && authorization.startsWith("Bearer ")) {
-                AuthenticatedUser user = authTokenService.parseToken(authorization.substring(7).trim());
+                String bearerToken = authorization.substring(7).trim();
+                if (path.startsWith("/api/mobile/alerts") && !bearerToken.contains(".")) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                AuthenticatedUser user = authTokenService.parseToken(bearerToken);
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         user,
                         null,

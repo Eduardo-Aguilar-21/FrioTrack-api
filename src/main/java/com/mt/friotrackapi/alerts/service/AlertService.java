@@ -1,32 +1,31 @@
 package com.mt.friotrackapi.alerts.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.alerts.dto.AlertResponse;
 import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
+import com.mt.friotrackapi.alerts.entity.AlertEntity;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.companies.entity.CompanyEntity;
+import com.mt.friotrackapi.companies.service.CompanyService;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
-import com.mt.friotrackapi.persistence.service.JsonStoreService;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Transactional(readOnly = true)
 public class AlertService {
 
-    private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "alerts.json");
-    private final JsonStoreService jsonStoreService;
-    private final List<AlertResponse> alerts = new ArrayList<>();
     private final ProtocolConfigService protocolConfigService;
+    private final CompanyService companyService;
 
-    public AlertService(ProtocolConfigService protocolConfigService, JsonStoreService jsonStoreService) {
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public AlertService(ProtocolConfigService protocolConfigService, CompanyService companyService) {
         this.protocolConfigService = protocolConfigService;
-        this.jsonStoreService = jsonStoreService;
-        loadAlerts();
+        this.companyService = companyService;
     }
 
     public List<AlertResponse> findAll(Long companyId, String severity) {
@@ -35,8 +34,11 @@ public class AlertService {
 
     public List<AlertResponse> findAll(Long companyId, String severity, String status, String type, String vehicle, String search) {
         String term = normalize(search);
-        return alerts.stream()
-                .filter(alert -> companyId == null || alert.companyId().equals(companyId))
+        List<AlertEntity> source = companyId == null
+                ? entityManager.createQuery("select a from AlertEntity a order by a.id desc", AlertEntity.class).getResultList()
+                : entityManager.createQuery("select a from AlertEntity a where a.company.id = :companyId order by a.id desc", AlertEntity.class).setParameter("companyId", companyId).getResultList();
+        return source.stream()
+                .map(this::toResponse)
                 .filter(this::isProtocolEnabled)
                 .filter(alert -> matches(severity, alert.severity()))
                 .filter(alert -> matches(status, alert.status()))
@@ -48,18 +50,11 @@ public class AlertService {
     }
 
     public AlertResponse findById(Long id) {
-        AlertResponse alert = findRawById(id);
+        AlertResponse alert = toResponse(entityById(id));
         if (!isProtocolEnabled(alert)) {
             throw new ApiException("Alerta no encontrada");
         }
         return withCurrentProtocolIcon(alert);
-    }
-
-    private AlertResponse findRawById(Long id) {
-        return alerts.stream()
-                .filter(alert -> alert.id().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new ApiException("Alerta no encontrada"));
     }
 
     public AlertSummaryResponse summary(Long companyId) {
@@ -97,115 +92,99 @@ public class AlertService {
         );
     }
 
-    private static int percent(int value, int total) {
-        return total == 0 ? 0 : Math.round((value * 100.0f) / total);
-    }
-
+    @Transactional
     public AlertResponse acknowledge(Long id) {
         return updateStatus(id, "Reconocida");
     }
 
+    @Transactional
     public AlertResponse resolve(Long id) {
         return updateStatus(id, "Resuelta");
     }
 
+    @Transactional
     public void delete(Long id) {
-        AlertResponse alert = findRawById(id);
-        alerts.remove(alert);
-        saveAlerts();
+        entityManager.remove(entityById(id));
     }
 
     private AlertResponse updateStatus(Long id, String status) {
-        AlertResponse alert = findRawById(id);
-        if (!isProtocolEnabled(alert)) {
+        AlertEntity alert = entityById(id);
+        AlertResponse current = toResponse(alert);
+        if (!isProtocolEnabled(current)) {
             throw new ApiException("Alerta no encontrada");
         }
-        AlertResponse updated = new AlertResponse(
-                alert.id(),
-                alert.companyId(),
-                alert.type(),
-                alert.severity(),
-                alert.title(),
-                alert.description(),
-                alert.vehicleLabel(),
-                alert.vehicleCode(),
-                alert.occurredAtLabel(),
-                status,
-                alert.duration(),
-                currentIconFor(alert, alert.icon())
-        );
-        alerts.set(alerts.indexOf(alert), updated);
-        saveAlerts();
-        return withCurrentProtocolIcon(updated);
+        alert.updateStatus(status);
+        return withCurrentProtocolIcon(toResponse(alert));
     }
 
     public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
-        return recordMqttAlert(companyId, type, severity, title, description, vehicleLabel, vehicleCode, null);
+        return recordMqttAlert(companyId, type, severity, title, description, vehicleLabel, vehicleCode, null, null);
     }
 
-    public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode, String icon) {
-        AlertResponse existing = alerts.stream()
-                .filter(alert -> alert.companyId().equals(companyId))
-                .filter(alert -> alert.type().equalsIgnoreCase(type))
-                .filter(alert -> alert.vehicleCode().equalsIgnoreCase(vehicleCode))
-                .filter(alert -> !alert.status().equalsIgnoreCase("Resuelta"))
-                .findFirst()
-                .orElse(null);
+    @Transactional
+    public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode, String icon, String reading) {
+        AlertEntity existing = activeMqttAlert(companyId, type, vehicleCode);
 
-        AlertResponse next = new AlertResponse(
-                existing == null ? nextId() : existing.id(),
-                companyId,
-                type,
+        String nextIcon = currentIconFor(companyId, type, icon == null && existing != null ? existing.getIcon() : icon);
+        if (existing == null) {
+            CompanyEntity company = companyService.entityById(companyId);
+            AlertEntity next = new AlertEntity(
+                    company,
+                    type,
+                    severity,
+                    title,
+                    description,
+                    vehicleLabel,
+                    vehicleCode,
+                    "Ahora",
+                    "Activa",
+                    "0 min",
+                    reading,
+                    nextIcon
+            );
+            entityManager.persist(next);
+            return toResponse(next);
+        }
+
+        existing.updateMqtt(
                 severity,
                 title,
                 description,
                 vehicleLabel,
-                vehicleCode,
                 "Ahora",
                 "Activa",
-                existing == null ? "0 min" : existing.duration(),
-                currentIconFor(companyId, type, icon == null && existing != null ? existing.icon() : icon)
+                existing.getDuration(),
+                reading,
+                nextIcon
         );
-
-        if (existing == null) {
-            alerts.add(0, next);
-        } else {
-            alerts.set(alerts.indexOf(existing), next);
-        }
-
-        saveAlerts();
-        return next;
+        return toResponse(existing);
     }
 
+    @Transactional
     public void resolveMqttAlert(Long companyId, String type, String vehicleCode) {
-        boolean changed = false;
-        for (int index = 0; index < alerts.size(); index++) {
-            AlertResponse alert = alerts.get(index);
-            if (alert.companyId().equals(companyId)
-                    && alert.type().equalsIgnoreCase(type)
-                    && alert.vehicleCode().equalsIgnoreCase(vehicleCode)
-                    && !alert.status().equalsIgnoreCase("Resuelta")) {
-                alerts.set(index, new AlertResponse(
-                        alert.id(),
-                        alert.companyId(),
-                        alert.type(),
-                        alert.severity(),
-                        alert.title(),
-                        alert.description(),
-                        alert.vehicleLabel(),
-                        alert.vehicleCode(),
-                        alert.occurredAtLabel(),
-                        "Resuelta",
-                        alert.duration(),
-                        currentIconFor(alert, alert.icon())
-                ));
-                changed = true;
-            }
-        }
+        List<AlertEntity> alerts = activeMqttAlerts(companyId, type, vehicleCode);
+        alerts.forEach(alert -> alert.updateStatus("Resuelta"));
+    }
 
-        if (changed) {
-            saveAlerts();
+    private AlertEntity activeMqttAlert(Long companyId, String type, String vehicleCode) {
+        return activeMqttAlerts(companyId, type, vehicleCode).stream().findFirst().orElse(null);
+    }
+
+    private List<AlertEntity> activeMqttAlerts(Long companyId, String type, String vehicleCode) {
+        return entityManager.createQuery("select a from AlertEntity a where a.company.id = :companyId and lower(a.type) = lower(:type) and lower(a.vehicleCode) = lower(:vehicleCode) and lower(a.status) <> lower(:resolved) order by a.id desc", AlertEntity.class)
+                .setParameter("companyId", companyId)
+                .setParameter("type", type)
+                .setParameter("vehicleCode", vehicleCode)
+                .setParameter("resolved", "Resuelta")
+                .getResultList();
+    }
+
+    private AlertEntity entityById(Long id) {
+        AlertEntity alert = entityManager.find(AlertEntity.class, id);
+        if (alert == null) {
+            throw new ApiException("Alerta no encontrada");
         }
+        return alert;
     }
 
     private AlertResponse withCurrentProtocolIcon(AlertResponse alert) {
@@ -225,7 +204,26 @@ public class AlertService {
                 alert.occurredAtLabel(),
                 alert.status(),
                 alert.duration(),
+                alert.reading(),
                 currentIcon
+        );
+    }
+
+    private AlertResponse toResponse(AlertEntity alert) {
+        return new AlertResponse(
+                alert.getId(),
+                alert.getCompany().getId(),
+                alert.getType(),
+                alert.getSeverity(),
+                alert.getTitle(),
+                alert.getDescription(),
+                alert.getVehicleLabel(),
+                alert.getVehicleCode(),
+                alert.getOccurredAtLabel(),
+                alert.getStatus(),
+                alert.getDuration(),
+                alert.getReading(),
+                alert.getIcon()
         );
     }
 
@@ -253,10 +251,6 @@ public class AlertService {
         return "fa-solid fa-temperature-half";
     }
 
-    private Long nextId() {
-        return alerts.stream().mapToLong(AlertResponse::id).max().orElse(0L) + 1;
-    }
-
     private boolean isProtocolEnabled(AlertResponse alert) {
         return protocolConfigService.isEventTypeEnabled(alert.companyId(), alert.type());
     }
@@ -270,7 +264,7 @@ public class AlertService {
     }
 
     private String searchText(AlertResponse alert) {
-        return alert.title() + " " + alert.description() + " " + alert.vehicleLabel() + " " + alert.vehicleCode() + " " + alert.type() + " " + alert.severity() + " " + alert.status();
+        return alert.title() + " " + alert.description() + " " + alert.vehicleLabel() + " " + alert.vehicleCode() + " " + alert.type() + " " + alert.severity() + " " + alert.status() + " " + (alert.reading() == null ? "" : alert.reading());
     }
 
     private String normalize(String value) {
@@ -281,33 +275,7 @@ public class AlertService {
         return value == null || value.trim().isEmpty();
     }
 
-    private void loadAlerts() {
-        alerts.addAll(jsonStoreService.read(
-                "alerts",
-                storePath,
-                new TypeReference<List<AlertResponse>>() {},
-                this::defaultAlerts,
-                "No se pudo cargar alertas persistidas",
-                "No se pudo persistir alertas"
-        ));
-    }
-
-
-
-    private void saveAlerts() {
-        jsonStoreService.write("alerts", storePath, alerts, "No se pudo persistir alertas");
-    }
-
-    private List<AlertResponse> defaultAlerts() {
-        return List.of(
-                new AlertResponse(1L, 1L, "TEMPERATURE", "CRITICAL", "Temperatura alta", "La temperatura supero el limite permitido", "Camion 12 - ABC123", "ABC123", "Hoy, 10:32", "Activa", "25 min", "fa-solid fa-temperature-half"),
-                new AlertResponse(2L, 1L, "DOOR", "WARNING", "Puerta abierta", "Puerta del compartimiento abierta", "Camion 07 - DEF456", "DEF456", "Hoy, 10:30", "Activa", "15 min", "fa-solid fa-door-open"),
-                new AlertResponse(3L, 1L, "COOLING", "CRITICAL", "Equipo de frio apagado", "El equipo de frio no esta funcionando", "Camion 03 - GHI789", "GHI789", "Hoy, 10:28", "Activa", "32 min", "fa-regular fa-snowflake"),
-                new AlertResponse(4L, 1L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion 02 - BBB222", "BBB222", "Hoy, 09:45", "Activa", "1 h 10 min", "fa-solid fa-temperature-half"),
-                new AlertResponse(5L, 1L, "NETWORK", "OFFLINE", "Sin comunicacion", "Sin datos del vehiculo", "Camion 21 - MNO321", "MNO321", "Hoy, 09:20", "Activa", "2 h 45 min", "fa-solid fa-wifi"),
-                new AlertResponse(6L, 1L, "SENSOR", "INFO", "Sensor reconectado", "Sensor de temperatura reconectado", "Camion 15 - JKL456", "JKL456", "Hoy, 08:50", "Informativa", "--", "fa-solid fa-circle-info"),
-                new AlertResponse(7L, 1L, "DOOR", "WARNING", "Puerta entreabierta", "La puerta estuvo entreabierta", "Camion 08 - PQR678", "PQR678", "Hoy, 08:15", "Resuelta", "5 min", "fa-solid fa-door-open"),
-                new AlertResponse(8L, 2L, "TEMPERATURE", "WARNING", "Temperatura fuera de rango", "Temperatura fuera del rango permitido", "Camion Norte 01 - NOR111", "NOR111", "Hoy, 09:00", "Activa", "40 min", "fa-solid fa-temperature-half")
-        );
+    private static int percent(int value, int total) {
+        return total == 0 ? 0 : Math.round((value * 100.0f) / total);
     }
 }
