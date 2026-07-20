@@ -53,7 +53,7 @@ public class NotificationDeliveryService {
                 .setParameter("companyId", alert.getCompany().getId())
                 .getResultList();
 
-        boolean shouldPushMobile = false;
+        Set<Long> appRecipientUserIds = new LinkedHashSet<>();
         for (NotificationGroupEntity group : groups) {
             if (!matches(group, alert)) {
                 continue;
@@ -66,13 +66,13 @@ public class NotificationDeliveryService {
                 for (String channel : split(group.getChannels())) {
                     createIfMissing(alert, group, user, channel);
                     if ("APP".equalsIgnoreCase(channel)) {
-                        shouldPushMobile = true;
+                        appRecipientUserIds.add(user.getId());
                     }
                 }
             }
         }
-        if (shouldPushMobile) {
-            mobilePushNotificationService.sendForAlert(alert);
+        if (!appRecipientUserIds.isEmpty()) {
+            mobilePushNotificationService.sendForAlert(alert, appRecipientUserIds);
         }
     }
 

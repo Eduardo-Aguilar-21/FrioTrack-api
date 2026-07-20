@@ -11,6 +11,7 @@ import com.mt.friotrackapi.mobile.dto.MobileAccessCodeResponse;
 import com.mt.friotrackapi.mobile.dto.MobileSessionResponse;
 import com.mt.friotrackapi.mobile.service.MobileDeviceService;
 import com.mt.friotrackapi.mobile.service.MobilePushNotificationService;
+import com.mt.friotrackapi.auth.service.CurrentUserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,18 +34,21 @@ public class MobileController {
     private final AlertService alertService;
     private final TenantAccessService tenantAccessService;
     private final MobilePushNotificationService mobilePushNotificationService;
+    private final CurrentUserService currentUserService;
 
-    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService, MobilePushNotificationService mobilePushNotificationService) {
+    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService, MobilePushNotificationService mobilePushNotificationService, CurrentUserService currentUserService) {
         this.mobileDeviceService = mobileDeviceService;
         this.alertService = alertService;
         this.tenantAccessService = tenantAccessService;
         this.mobilePushNotificationService = mobilePushNotificationService;
+        this.currentUserService = currentUserService;
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
     @PostMapping("/access-code")
     public ApiResponse<MobileAccessCodeResponse> createAccessCode(@RequestBody(required = false) CreateMobileAccessCodeRequest request) {
-        return ApiResponse.ok("Codigo movil generado", mobileDeviceService.createAccessCode(tenantAccessService.companyId(), request));
+        var user = currentUserService.currentUser();
+        return ApiResponse.ok("Codigo movil generado", mobileDeviceService.createAccessCode(tenantAccessService.companyId(), user.id(), request));
     }
 
     @PostMapping("/link")

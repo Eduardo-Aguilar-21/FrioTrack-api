@@ -5,6 +5,8 @@ import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.common.exception.AuthException;
 import com.mt.friotrackapi.companies.dto.CompanyResponse;
 import com.mt.friotrackapi.companies.service.CompanyService;
+import com.mt.friotrackapi.users.dto.UserResponse;
+import com.mt.friotrackapi.users.service.UserService;
 import com.mt.friotrackapi.mobile.dto.CreateMobileAccessCodeRequest;
 import com.mt.friotrackapi.mobile.dto.LinkMobileDeviceRequest;
 import com.mt.friotrackapi.mobile.dto.MobileAccessCodeResponse;
@@ -34,14 +36,20 @@ public class MobileDeviceService {
     private final SecureRandom secureRandom = new SecureRandom();
     private final JsonStoreService jsonStoreService;
     private final CompanyService companyService;
+    private final UserService userService;
 
-    public MobileDeviceService(JsonStoreService jsonStoreService, CompanyService companyService) {
+    public MobileDeviceService(JsonStoreService jsonStoreService, CompanyService companyService, UserService userService) {
         this.jsonStoreService = jsonStoreService;
         this.companyService = companyService;
+        this.userService = userService;
     }
 
-    public synchronized MobileAccessCodeResponse createAccessCode(Long companyId, CreateMobileAccessCodeRequest request) {
+    public synchronized MobileAccessCodeResponse createAccessCode(Long companyId, Long userId, CreateMobileAccessCodeRequest request) {
         companyService.findById(companyId);
+        UserResponse user = userService.findById(userId);
+        if (!companyId.equals(user.companyId())) {
+            throw new ApiException("El usuario no pertenece a esta empresa");
+        }
         List<MobileAccessCode> codes = accessCodes();
         Instant now = Instant.now();
         codes.removeIf(code -> Instant.parse(code.expiresAt()).isBefore(now) || code.usedAt() != null);
@@ -49,10 +57,10 @@ public class MobileDeviceService {
         String code = uniqueCode(codes, now);
         int minutes = expirationMinutes(request);
         Instant expiresAt = now.plusSeconds(minutes * 60L);
-        codes.add(new MobileAccessCode(companyId, code, expiresAt.toString(), null));
+        codes.add(new MobileAccessCode(companyId, userId, code, expiresAt.toString(), null));
         saveAccessCodes(codes);
 
-        return new MobileAccessCodeResponse(companyId, code, expiresAt);
+        return new MobileAccessCodeResponse(companyId, userId, user.name(), code, expiresAt);
     }
 
     public synchronized MobileSessionResponse linkDevice(LinkMobileDeviceRequest request) {
@@ -70,13 +78,14 @@ public class MobileDeviceService {
         CompanyResponse company = companyService.findById(accessCode.companyId());
         String deviceName = cleanDeviceName(request.deviceName());
         List<MobileDevice> devices = devices();
-        devices.add(new MobileDevice(token, accessCode.companyId(), deviceName, request.pushToken(), now.toString(), now.toString(), true));
+        UserResponse user = userService.findById(accessCode.userId());
+        devices.add(new MobileDevice(token, accessCode.companyId(), accessCode.userId(), user.name(), deviceName, request.pushToken(), now.toString(), now.toString(), true));
 
-        codes.set(codes.indexOf(accessCode), new MobileAccessCode(accessCode.companyId(), accessCode.code(), accessCode.expiresAt(), now.toString()));
+        codes.set(codes.indexOf(accessCode), new MobileAccessCode(accessCode.companyId(), accessCode.userId(), accessCode.code(), accessCode.expiresAt(), now.toString()));
         saveAccessCodes(codes);
         saveDevices(devices);
 
-        return new MobileSessionResponse(token, company.id(), company.name(), deviceName);
+        return new MobileSessionResponse(token, company.id(), company.name(), user.id(), user.name(), deviceName);
     }
 
     public synchronized MobileDevice authenticate(HttpServletRequest request) {
@@ -91,6 +100,8 @@ public class MobileDeviceService {
         devices.set(devices.indexOf(device), new MobileDevice(
                 device.token(),
                 device.companyId(),
+                device.userId(),
+                device.userName(),
                 device.deviceName(),
                 device.pushToken(),
                 device.createdAt(),
@@ -103,10 +114,11 @@ public class MobileDeviceService {
     }
 
 
-    public synchronized List<MobileDevice> activePushDevices(Long companyId) {
+    public synchronized List<MobileDevice> activePushDevices(Long companyId, java.util.Set<Long> userIds) {
         return devices().stream()
                 .filter(MobileDevice::active)
                 .filter(device -> companyId.equals(device.companyId()))
+                .filter(device -> device.userId() != null && userIds.contains(device.userId()))
                 .filter(device -> device.pushToken() != null && !device.pushToken().isBlank())
                 .toList();
     }
@@ -206,6 +218,8 @@ public class MobileDeviceService {
     public record MobileDevice(
             String token,
             Long companyId,
+            Long userId,
+            String userName,
             String deviceName,
             String pushToken,
             String createdAt,
@@ -216,6 +230,7 @@ public class MobileDeviceService {
 
     private record MobileAccessCode(
             Long companyId,
+            Long userId,
             String code,
             String expiresAt,
             String usedAt

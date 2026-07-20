@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,11 +34,12 @@ public class MobilePushNotificationService {
     }
 
     @Transactional
-    public void sendForAlert(AlertEntity alert) {
-        List<MobileDeviceService.MobileDevice> devices = mobileDeviceService.activePushDevices(alert.getCompany().getId());
+    public void sendForAlert(AlertEntity alert, Set<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) return;
+        List<MobileDeviceService.MobileDevice> devices = mobileDeviceService.activePushDevices(alert.getCompany().getId(), userIds);
         for (MobileDeviceService.MobileDevice device : devices) {
             if (exists(alert.getId(), device.token())) continue;
-            MobilePushNotificationEntity record = new MobilePushNotificationEntity(alert, alert.getCompany().getId(), device.token(), device.pushToken());
+            MobilePushNotificationEntity record = new MobilePushNotificationEntity(alert, alert.getCompany().getId(), device.userId(), device.token(), device.pushToken());
             entityManager.persist(record);
             entityManager.flush();
             send(record, device.pushToken(), alert);

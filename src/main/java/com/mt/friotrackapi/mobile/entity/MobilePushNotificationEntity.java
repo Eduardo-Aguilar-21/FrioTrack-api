@@ -10,6 +10,7 @@ public class MobilePushNotificationEntity {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "alert_id", nullable = false) private AlertEntity alert;
     @Column(name = "company_id", nullable = false) private Long companyId;
+    @Column(name = "user_id") private Long userId;
     @Column(name = "mobile_token", nullable = false) private String mobileToken;
     @Column(name = "push_token", nullable = false) private String pushToken;
     @Column(nullable = false) private String status;
@@ -20,7 +21,7 @@ public class MobilePushNotificationEntity {
     @Column(name = "read_at") private Instant readAt;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
     protected MobilePushNotificationEntity() {}
-    public MobilePushNotificationEntity(AlertEntity alert, Long companyId, String mobileToken, String pushToken) { this.alert = alert; this.companyId = companyId; this.mobileToken = mobileToken; this.pushToken = pushToken; this.status = "PENDING"; }
+    public MobilePushNotificationEntity(AlertEntity alert, Long companyId, Long userId, String mobileToken, String pushToken) { this.alert = alert; this.companyId = companyId; this.userId = userId; this.mobileToken = mobileToken; this.pushToken = pushToken; this.status = "PENDING"; }
     public void sent(String ticketId) { this.status = "SENT"; this.ticketId = ticketId; this.sentAt = Instant.now(); }
     public void failed(String reason) { this.status = "FAILED"; this.failureReason = reason; this.sentAt = Instant.now(); }
     public void received() { if (!"READ".equals(this.status)) this.status = "RECEIVED"; this.receivedAt = Instant.now(); }

@@ -21,10 +21,14 @@ public class TenantAccessService {
     }
 
     public Long resolveCompanyId(Long requestedCompanyId) {
-        if (isServiceAdmin() && requestedCompanyId != null) {
-            return requestedCompanyId;
+        if (isServiceAdmin()) {
+            return requestedCompanyId != null ? requestedCompanyId : companyId();
         }
-        return companyId();
+        Long currentCompanyId = companyId();
+        if (requestedCompanyId != null && !currentCompanyId.equals(requestedCompanyId)) {
+            throw new ForbiddenException("No tienes acceso a esta empresa");
+        }
+        return currentCompanyId;
     }
 
     public void requireCompany(Long companyId) {
