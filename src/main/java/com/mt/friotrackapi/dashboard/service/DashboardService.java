@@ -139,6 +139,7 @@ public class DashboardService {
 
     public List<AlertResponse> recentAlerts(Long companyId, int limit) {
         return alertService.findAll(companyId, null).stream()
+                .filter(alert -> !alert.status().equalsIgnoreCase("Resuelta"))
                 .limit(Math.max(1, limit))
                 .toList();
     }
