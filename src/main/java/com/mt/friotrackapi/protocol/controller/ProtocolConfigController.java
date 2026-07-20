@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -26,15 +27,17 @@ public class ProtocolConfigController {
     }
 
     @GetMapping
-    public ApiResponse<ProtocolConfigResponse> findByCompany() {
-        return ApiResponse.ok(protocolConfigService.findByCompany(tenantAccessService.companyId()));
+    public ApiResponse<ProtocolConfigResponse> findByCompany(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(protocolConfigService.findByCompany(tenantAccessService.resolveCompanyId(companyId)));
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
+    @PreAuthorize("hasRole('SA')")
     @PutMapping
     public ApiResponse<ProtocolConfigResponse> save(@Valid @RequestBody SaveProtocolConfigRequest request) {
+        Long companyId = tenantAccessService.resolveCompanyId(request.companyId());
+        tenantAccessService.requireCompany(companyId);
         SaveProtocolConfigRequest scoped = new SaveProtocolConfigRequest(
-                tenantAccessService.companyId(),
+                companyId,
                 request.brokerName(),
                 request.topicPattern(),
                 request.payloadRoot(),

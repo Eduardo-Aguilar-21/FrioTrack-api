@@ -118,6 +118,28 @@ public class UserService {
         return toResponse(current);
     }
 
+
+    @Transactional
+    public void changePassword(Long id, String currentPassword, String newPassword) {
+        UserEntity current = entityById(id);
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new AuthException("La contraseña actual es obligatoria");
+        }
+        if (newPassword == null || newPassword.isBlank() || newPassword.length() < 6) {
+            throw new ApiException("La nueva contraseña debe tener al menos 6 caracteres");
+        }
+
+        boolean validCurrent = isPasswordHash(current.getPassword())
+                ? passwordEncoder.matches(currentPassword, current.getPassword())
+                : current.getPassword().equals(currentPassword);
+
+        if (!validCurrent) {
+            throw new AuthException("La contraseña actual no es correcta");
+        }
+
+        current.setPassword(passwordEncoder.encode(newPassword));
+    }
+
     @Transactional
     public UserResponse setStatus(Long id, String status) {
         UserEntity current = entityById(id);

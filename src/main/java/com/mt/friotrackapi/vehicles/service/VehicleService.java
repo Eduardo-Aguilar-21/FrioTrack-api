@@ -219,6 +219,7 @@ public class VehicleService {
         return new VehicleResponse(
                 vehicle.getId(),
                 vehicle.getCompany().getId(),
+                vehicle.getCompany().getName(),
                 vehicle.getCode(),
                 vehicle.getPlate(),
                 vehicle.getLabel(),

@@ -3,6 +3,7 @@ package com.mt.friotrackapi.vehicles.dto;
 public record VehicleResponse(
         Long id,
         Long companyId,
+        String companyName,
         String code,
         String plate,
         String label,

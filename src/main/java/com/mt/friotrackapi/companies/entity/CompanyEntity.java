@@ -31,10 +31,30 @@ public class CompanyEntity {
 
     protected CompanyEntity() {}
 
+    public CompanyEntity(String name, String slug, String status, Integer warningOfflineMinutes, Integer criticalOfflineMinutes) {
+        this.name = name;
+        this.slug = slug;
+        this.status = status;
+        this.warningOfflineMinutes = warningOfflineMinutes;
+        this.criticalOfflineMinutes = criticalOfflineMinutes;
+    }
+
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getSlug() { return slug; }
     public String getStatus() { return status; }
     public Integer getWarningOfflineMinutes() { return warningOfflineMinutes == null ? 3 : warningOfflineMinutes; }
     public Integer getCriticalOfflineMinutes() { return criticalOfflineMinutes == null ? 10 : criticalOfflineMinutes; }
+
+    public void update(String name, String slug, String status, Integer warningOfflineMinutes, Integer criticalOfflineMinutes) {
+        this.name = name;
+        this.slug = slug;
+        this.status = status;
+        this.warningOfflineMinutes = warningOfflineMinutes;
+        this.criticalOfflineMinutes = criticalOfflineMinutes;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
 }

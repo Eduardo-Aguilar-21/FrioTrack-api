@@ -29,32 +29,32 @@ public class DashboardController {
     }
 
     @GetMapping("/summary")
-    public ApiResponse<DashboardSummaryResponse> summary() {
-        return ApiResponse.ok(dashboardService.summary(tenantAccessService.companyId()));
+    public ApiResponse<DashboardSummaryResponse> summary(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(dashboardService.summary(tenantAccessService.resolveCompanyId(companyId)));
     }
 
     @GetMapping("/fleet-map")
-    public ApiResponse<List<FleetMapVehicleResponse>> fleetMap() {
-        return ApiResponse.ok(dashboardService.fleetMap(tenantAccessService.companyId()));
+    public ApiResponse<List<FleetMapVehicleResponse>> fleetMap(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(dashboardService.fleetMap(tenantAccessService.resolveCompanyId(companyId)));
     }
 
     @GetMapping("/vehicle-status")
-    public ApiResponse<List<VehicleStatusResponse>> vehicleStatus() {
-        return ApiResponse.ok(dashboardService.vehicleStatus(tenantAccessService.companyId()));
+    public ApiResponse<List<VehicleStatusResponse>> vehicleStatus(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(dashboardService.vehicleStatus(tenantAccessService.resolveCompanyId(companyId)));
     }
 
     @GetMapping("/temperature-distribution")
-    public ApiResponse<TemperatureDistributionResponse> temperatureDistribution() {
-        return ApiResponse.ok(dashboardService.temperatureDistribution(tenantAccessService.companyId()));
+    public ApiResponse<TemperatureDistributionResponse> temperatureDistribution(@RequestParam(required = false) Long companyId) {
+        return ApiResponse.ok(dashboardService.temperatureDistribution(tenantAccessService.resolveCompanyId(companyId)));
     }
 
     @GetMapping("/recent-alerts")
-    public ApiResponse<List<AlertResponse>> recentAlerts(@RequestParam(defaultValue = "4") int limit) {
-        return ApiResponse.ok(dashboardService.recentAlerts(tenantAccessService.companyId(), limit));
+    public ApiResponse<List<AlertResponse>> recentAlerts(@RequestParam(required = false) Long companyId, @RequestParam(defaultValue = "4") int limit) {
+        return ApiResponse.ok(dashboardService.recentAlerts(tenantAccessService.resolveCompanyId(companyId), limit));
     }
 
     @GetMapping("/featured-vehicle")
-    public ApiResponse<FeaturedVehicleResponse> featuredVehicle(@RequestParam(required = false) Long vehicleId) {
-        return ApiResponse.ok(dashboardService.featuredVehicle(tenantAccessService.companyId(), vehicleId));
+    public ApiResponse<FeaturedVehicleResponse> featuredVehicle(@RequestParam(required = false) Long companyId, @RequestParam(required = false) Long vehicleId) {
+        return ApiResponse.ok(dashboardService.featuredVehicle(tenantAccessService.resolveCompanyId(companyId), vehicleId));
     }
 }

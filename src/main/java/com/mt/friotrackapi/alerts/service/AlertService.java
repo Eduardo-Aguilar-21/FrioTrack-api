@@ -6,7 +6,9 @@ import com.mt.friotrackapi.alerts.entity.AlertEntity;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.companies.entity.CompanyEntity;
 import com.mt.friotrackapi.companies.service.CompanyService;
+import com.mt.friotrackapi.notifications.service.NotificationDeliveryService;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
+import com.mt.friotrackapi.realtime.service.RealtimeEventService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
@@ -19,13 +21,17 @@ public class AlertService {
 
     private final ProtocolConfigService protocolConfigService;
     private final CompanyService companyService;
+    private final NotificationDeliveryService notificationDeliveryService;
+    private final RealtimeEventService realtimeEventService;
 
     @PersistenceContext
     private EntityManager entityManager;
 
-    public AlertService(ProtocolConfigService protocolConfigService, CompanyService companyService) {
+    public AlertService(ProtocolConfigService protocolConfigService, CompanyService companyService, NotificationDeliveryService notificationDeliveryService, RealtimeEventService realtimeEventService) {
         this.protocolConfigService = protocolConfigService;
         this.companyService = companyService;
+        this.notificationDeliveryService = notificationDeliveryService;
+        this.realtimeEventService = realtimeEventService;
     }
 
     public List<AlertResponse> findAll(Long companyId, String severity) {
@@ -114,7 +120,9 @@ public class AlertService {
             throw new ApiException("Alerta no encontrada");
         }
         alert.updateStatus(status);
-        return withCurrentProtocolIcon(toResponse(alert));
+        AlertResponse response = withCurrentProtocolIcon(toResponse(alert));
+        realtimeEventService.publish(alert.getCompany().getId(), "alert", response);
+        return response;
     }
 
     public AlertResponse recordMqttAlert(Long companyId, String type, String severity, String title, String description, String vehicleLabel, String vehicleCode) {
@@ -143,7 +151,11 @@ public class AlertService {
                     nextIcon
             );
             entityManager.persist(next);
-            return toResponse(next);
+            entityManager.flush();
+            notificationDeliveryService.dispatchForAlert(next);
+            AlertResponse response = withCurrentProtocolIcon(toResponse(next));
+            realtimeEventService.publish(companyId, "alert", response);
+            return response;
         }
 
         existing.updateMqtt(
@@ -157,13 +169,19 @@ public class AlertService {
                 reading,
                 nextIcon
         );
-        return toResponse(existing);
+        notificationDeliveryService.dispatchForAlert(existing);
+        AlertResponse response = withCurrentProtocolIcon(toResponse(existing));
+        realtimeEventService.publish(companyId, "alert", response);
+        return response;
     }
 
     @Transactional
     public void resolveMqttAlert(Long companyId, String type, String vehicleCode) {
         List<AlertEntity> alerts = activeMqttAlerts(companyId, type, vehicleCode);
-        alerts.forEach(alert -> alert.updateStatus("Resuelta"));
+        alerts.forEach(alert -> {
+            alert.updateStatus("Resuelta");
+            realtimeEventService.publish(companyId, "alert", withCurrentProtocolIcon(toResponse(alert)));
+        });
     }
 
     private AlertEntity activeMqttAlert(Long companyId, String type, String vehicleCode) {

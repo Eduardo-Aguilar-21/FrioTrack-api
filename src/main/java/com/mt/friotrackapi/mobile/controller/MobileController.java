@@ -10,6 +10,7 @@ import com.mt.friotrackapi.mobile.dto.LinkMobileDeviceRequest;
 import com.mt.friotrackapi.mobile.dto.MobileAccessCodeResponse;
 import com.mt.friotrackapi.mobile.dto.MobileSessionResponse;
 import com.mt.friotrackapi.mobile.service.MobileDeviceService;
+import com.mt.friotrackapi.mobile.service.MobilePushNotificationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -31,11 +32,13 @@ public class MobileController {
     private final MobileDeviceService mobileDeviceService;
     private final AlertService alertService;
     private final TenantAccessService tenantAccessService;
+    private final MobilePushNotificationService mobilePushNotificationService;
 
-    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService) {
+    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService, MobilePushNotificationService mobilePushNotificationService) {
         this.mobileDeviceService = mobileDeviceService;
         this.alertService = alertService;
         this.tenantAccessService = tenantAccessService;
+        this.mobilePushNotificationService = mobilePushNotificationService;
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
@@ -70,18 +73,33 @@ public class MobileController {
 
     @GetMapping("/alerts/{id}")
     public ApiResponse<AlertResponse> alertById(HttpServletRequest request, @PathVariable Long id) {
-        Long companyId = mobileDeviceService.authenticate(request).companyId();
+        var device = mobileDeviceService.authenticate(request);
+        Long companyId = device.companyId();
         AlertResponse alert = alertService.findById(id);
         requireMobileCompany(companyId, alert);
+        mobilePushNotificationService.markReceived(id, device.token());
         return ApiResponse.ok(alert);
+    }
+
+    @PatchMapping("/alerts/{id}/received")
+    public ApiResponse<Void> markReceived(HttpServletRequest request, @PathVariable Long id) {
+        var device = mobileDeviceService.authenticate(request);
+        Long companyId = device.companyId();
+        AlertResponse alert = alertService.findById(id);
+        requireMobileCompany(companyId, alert);
+        mobilePushNotificationService.markReceived(id, device.token());
+        return ApiResponse.ok("Notificacion recibida", null);
     }
 
     @PatchMapping("/alerts/{id}/review")
     public ApiResponse<AlertResponse> reviewAlert(HttpServletRequest request, @PathVariable Long id) {
-        Long companyId = mobileDeviceService.authenticate(request).companyId();
+        var device = mobileDeviceService.authenticate(request);
+        Long companyId = device.companyId();
         AlertResponse alert = alertService.findById(id);
         requireMobileCompany(companyId, alert);
-        return ApiResponse.ok("Alerta revisada", alertService.acknowledge(id));
+        AlertResponse reviewed = alertService.acknowledge(id);
+        mobilePushNotificationService.markRead(id, device.token());
+        return ApiResponse.ok("Alerta revisada", reviewed);
     }
 
     private void requireMobileCompany(Long companyId, AlertResponse alert) {

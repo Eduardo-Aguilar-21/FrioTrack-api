@@ -40,7 +40,7 @@ public class MqttTelemetryIngestionService {
         validateTopicPattern(protocolConfigService.findByCompany(vehicle.companyId()).topicPattern(), topic, vehicleId);
         ProtocolTelemetryData data = protocolPayloadMapper.map(vehicle.companyId(), payload);
 
-        telemetryService.applyMqttTelemetry(vehicle, data);
+        telemetryService.applyMqttTelemetry(vehicle, data, payload);
         VehicleResponse updatedVehicle = vehicleService.updateTelemetryState(
                 vehicle.id(),
                 data.latitude(),

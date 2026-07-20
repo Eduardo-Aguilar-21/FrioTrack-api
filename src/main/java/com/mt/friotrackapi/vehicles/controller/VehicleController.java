@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -37,8 +38,11 @@ public class VehicleController {
     }
 
     @GetMapping
-    public ApiResponse<List<VehicleResponse>> findAll() {
-        return ApiResponse.ok(vehicleService.findAll(tenantAccessService.companyId()));
+    public ApiResponse<List<VehicleResponse>> findAll(@RequestParam(required = false) Long companyId) {
+        if (tenantAccessService.isServiceAdmin() && companyId == null) {
+            return ApiResponse.ok(vehicleService.findAll(null));
+        }
+        return ApiResponse.ok(vehicleService.findAll(tenantAccessService.resolveCompanyId(companyId)));
     }
 
     @GetMapping("/{id}")
@@ -92,6 +96,8 @@ public class VehicleController {
     }
 
     private CreateVehicleRequest scopedRequest(CreateVehicleRequest request) {
-        return new CreateVehicleRequest(tenantAccessService.companyId(), request.code(), request.plate(), request.label(), request.driver(), request.imei(), request.model(), request.year(), request.unitType(), request.loadCapacityKg());
+        Long companyId = tenantAccessService.resolveCompanyId(request.companyId());
+        tenantAccessService.requireCompany(companyId);
+        return new CreateVehicleRequest(companyId, request.code(), request.plate(), request.label(), request.driver(), request.imei(), request.model(), request.year(), request.unitType(), request.loadCapacityKg());
     }
 }

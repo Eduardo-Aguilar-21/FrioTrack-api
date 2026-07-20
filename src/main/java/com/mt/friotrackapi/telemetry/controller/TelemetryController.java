@@ -14,6 +14,7 @@ import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
 import jakarta.validation.Valid;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,6 +45,7 @@ public class TelemetryController {
         return ApiResponse.ok(telemetryService.snapshot(vehicleId));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping("/vehicles/{vehicleId}/latest")
     public ApiResponse<TelemetrySnapshotResponse> updateLatest(@PathVariable Long vehicleId, @Valid @RequestBody UpdateTelemetrySnapshotRequest request) {
         requireVehicle(vehicleId);
@@ -83,6 +85,7 @@ public class TelemetryController {
         return ApiResponse.ok(telemetryService.dailySummary(vehicleId));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping("/vehicles/{vehicleId}/temperature-history")
     public ApiResponse<List<TemperaturePointResponse>> saveTemperatureHistory(@PathVariable Long vehicleId, @Valid @RequestBody SaveTemperatureHistoryRequest request) {
         requireVehicle(vehicleId);
@@ -96,6 +99,7 @@ public class TelemetryController {
         return ApiResponse.ok(telemetryService.events(vehicleId));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PostMapping("/vehicles/{vehicleId}/events")
     public ApiResponse<VehicleEventResponse> addEvent(@PathVariable Long vehicleId, @Valid @RequestBody CreateVehicleEventRequest request) {
         requireVehicle(vehicleId);

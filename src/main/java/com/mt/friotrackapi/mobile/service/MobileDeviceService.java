@@ -102,6 +102,15 @@ public class MobileDeviceService {
         return device;
     }
 
+
+    public synchronized List<MobileDevice> activePushDevices(Long companyId) {
+        return devices().stream()
+                .filter(MobileDevice::active)
+                .filter(device -> companyId.equals(device.companyId()))
+                .filter(device -> device.pushToken() != null && !device.pushToken().isBlank())
+                .toList();
+    }
+
     private String uniqueCode(List<MobileAccessCode> codes, Instant now) {
         for (int attempt = 0; attempt < 100; attempt++) {
             String candidate = String.format(Locale.ROOT, "%04d", secureRandom.nextInt(10_000));

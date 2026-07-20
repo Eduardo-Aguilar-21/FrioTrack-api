@@ -34,6 +34,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/api/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/mobile/link").permitAll()
+                        .requestMatchers("/api/realtime/stream").permitAll()
                         .requestMatchers("/api/mobile/alerts", "/api/mobile/alerts/**").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
