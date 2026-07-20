@@ -30,7 +30,7 @@ public class ProtocolConfigController {
         return ApiResponse.ok(protocolConfigService.findByCompany(tenantAccessService.companyId()));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping
     public ApiResponse<ProtocolConfigResponse> save(@Valid @RequestBody SaveProtocolConfigRequest request) {
         SaveProtocolConfigRequest scoped = new SaveProtocolConfigRequest(

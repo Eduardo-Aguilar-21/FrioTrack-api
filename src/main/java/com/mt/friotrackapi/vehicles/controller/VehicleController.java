@@ -46,21 +46,21 @@ public class VehicleController {
         return ApiResponse.ok(requireVehicle(id));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PostMapping
     public ApiResponse<VehicleResponse> create(@Valid @RequestBody CreateVehicleRequest request) {
         CreateVehicleRequest scoped = scopedRequest(request);
         return ApiResponse.ok("Vehiculo creado", vehicleService.create(scoped));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping("/{id}")
     public ApiResponse<VehicleResponse> update(@PathVariable Long id, @Valid @RequestBody CreateVehicleRequest request) {
         requireVehicle(id);
         return ApiResponse.ok("Vehiculo actualizado", vehicleService.update(id, scopedRequest(request)));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PatchMapping("/{id}/status/{status}")
     public ApiResponse<VehicleResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
         requireVehicle(id);

@@ -38,7 +38,7 @@ public class MobileController {
         this.tenantAccessService = tenantAccessService;
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
     @PostMapping("/access-code")
     public ApiResponse<MobileAccessCodeResponse> createAccessCode(@RequestBody(required = false) CreateMobileAccessCodeRequest request) {
         return ApiResponse.ok("Codigo movil generado", mobileDeviceService.createAccessCode(tenantAccessService.companyId(), request));

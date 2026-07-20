@@ -51,21 +51,21 @@ public class AlertController {
         return ApiResponse.ok(alert);
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
     @PatchMapping("/{id}/ack")
     public ApiResponse<AlertResponse> acknowledge(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());
         return ApiResponse.ok("Alerta reconocida", alertService.acknowledge(id));
     }
 
-    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
     @PatchMapping("/{id}/resolve")
     public ApiResponse<AlertResponse> resolve(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());
         return ApiResponse.ok("Alerta resuelta", alertService.resolve(id));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         tenantAccessService.requireCompany(alertService.findById(id).companyId());

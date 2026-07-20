@@ -42,14 +42,14 @@ public class UserController {
         return ApiResponse.ok(user);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PostMapping
     public ApiResponse<UserResponse> create(@Valid @RequestBody CreateUserRequest request) {
         CreateUserRequest scoped = new CreateUserRequest(tenantAccessService.companyId(), request.username(), request.name(), request.email(), request.password(), request.roleId());
         return ApiResponse.ok("Usuario creado", userService.create(scoped));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping("/{id}")
     public ApiResponse<UserResponse> update(@PathVariable Long id, @Valid @RequestBody CreateUserRequest request) {
         tenantAccessService.requireCompany(userService.findById(id).companyId());
@@ -57,7 +57,7 @@ public class UserController {
         return ApiResponse.ok("Usuario actualizado", userService.update(id, scoped));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PatchMapping("/{id}/status/{status}")
     public ApiResponse<UserResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
         tenantAccessService.requireCompany(userService.findById(id).companyId());

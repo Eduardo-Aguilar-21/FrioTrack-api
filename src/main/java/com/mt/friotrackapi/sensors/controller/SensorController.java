@@ -39,13 +39,13 @@ public class SensorController {
         return ApiResponse.ok(sensorService.findAll(tenantAccessService.companyId()));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PostMapping
     public ApiResponse<SensorResponse> create(@Valid @RequestBody CreateSensorRequest request) {
         return ApiResponse.ok("Sensor creado", sensorService.create(scopedRequest(request)));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PutMapping("/{id}")
     public ApiResponse<SensorResponse> update(@PathVariable Long id, @Valid @RequestBody CreateSensorRequest request) {
         SensorResponse sensor = sensorService.findById(id);
@@ -53,7 +53,7 @@ public class SensorController {
         return ApiResponse.ok("Sensor actualizado", sensorService.update(id, scopedRequest(request)));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'SA')")
     @PatchMapping("/{id}/status/{status}")
     public ApiResponse<SensorResponse> setStatus(@PathVariable Long id, @PathVariable String status) {
         SensorResponse sensor = sensorService.findById(id);
