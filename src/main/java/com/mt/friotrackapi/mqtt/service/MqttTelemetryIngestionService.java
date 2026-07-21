@@ -3,6 +3,7 @@ package com.mt.friotrackapi.mqtt.service;
 import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.common.exception.ApiException;
 import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
+import com.mt.friotrackapi.protocol.dto.AdvancedAlertRuleResponse;
 import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
 import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
@@ -10,6 +11,12 @@ import com.mt.friotrackapi.telemetry.service.TelemetryService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class MqttTelemetryIngestionService {
@@ -19,6 +26,7 @@ public class MqttTelemetryIngestionService {
     private final TelemetryService telemetryService;
     private final AlertService alertService;
     private final ProtocolConfigService protocolConfigService;
+    private final Map<String, Instant> advancedConditionSince = new ConcurrentHashMap<>();
 
     public MqttTelemetryIngestionService(
             VehicleService vehicleService,
@@ -55,6 +63,7 @@ public class MqttTelemetryIngestionService {
         alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK", updatedVehicle.code());
         alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK_WARNING", updatedVehicle.code());
 
+        processAdvancedRules(updatedVehicle, data);
         processTemperature(updatedVehicle, data);
         processDoor(updatedVehicle, data);
         processCooling(updatedVehicle, data);
@@ -87,6 +96,11 @@ public class MqttTelemetryIngestionService {
     }
 
     private void processTemperature(VehicleResponse vehicle, ProtocolTelemetryData data) {
+        if (hasEnabledAdvancedRule(vehicle.companyId(), "temperature")) {
+            alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
+            return;
+        }
+
         ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), "temperature");
         if (data.temperatureValue() == null || field == null || !"RANGE".equalsIgnoreCase(field.alertMode())) {
             alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
@@ -109,6 +123,100 @@ public class MqttTelemetryIngestionService {
         }
 
         alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
+    }
+
+    private void processAdvancedRules(VehicleResponse vehicle, ProtocolTelemetryData data) {
+        List<AdvancedAlertRuleResponse> rules = protocolConfigService.findByCompany(vehicle.companyId()).advancedAlertRules();
+        for (int index = 0; index < rules.size(); index++) {
+            AdvancedAlertRuleResponse rule = rules.get(index);
+            String type = "ADVANCED_" + normalizeRulePart(rule.conditionField()) + "_" + index;
+            String stateKey = vehicle.id() + ":" + type;
+
+            if (!Boolean.TRUE.equals(rule.enabled()) || !matchesAdvancedRule(vehicle, data, rule, stateKey)) {
+                advancedConditionSince.remove(stateKey);
+                advancedConditionSince.remove(stateKey + ":stopped");
+                alertService.resolveMqttAlert(vehicle.companyId(), type, vehicle.code());
+                continue;
+            }
+
+            Instant activeSince = advancedConditionSince.computeIfAbsent(stateKey, ignored -> Instant.now());
+            long requiredSeconds = rule.persistenceSeconds() == null ? 60L : rule.persistenceSeconds();
+            if (Instant.now().isBefore(activeSince.plusSeconds(requiredSeconds))) {
+                alertService.resolveMqttAlert(vehicle.companyId(), type, vehicle.code());
+                continue;
+            }
+
+            ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), rule.conditionField());
+            String title = rule.name() == null || rule.name().isBlank() ? "Regla avanzada" : rule.name();
+            String description = "Condicion " + ruleDescription(rule) + " confirmada durante " + requiredSeconds + " segundos";
+            alertService.recordMqttAlert(vehicle.companyId(), type, "WARNING", title, description, vehicle.label(), vehicle.code(), field == null ? null : field.alertIcon(), String.valueOf(valueForRule(data, rule.conditionField())));
+            telemetryService.recordMqttEvent(vehicle.id(), type, title, description, "WARNING");
+        }
+    }
+
+    private boolean hasEnabledAdvancedRule(Long companyId, String targetField) {
+        return protocolConfigService.findByCompany(companyId).advancedAlertRules().stream()
+                .anyMatch(rule -> Boolean.TRUE.equals(rule.enabled()) && targetField.equalsIgnoreCase(rule.conditionField()));
+    }
+
+    private boolean matchesAdvancedRule(VehicleResponse vehicle, ProtocolTelemetryData data, AdvancedAlertRuleResponse rule, String stateKey) {
+        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), rule.conditionField());
+        Double value = valueForRule(data, rule.conditionField());
+        if (field == null || value == null || field.alertMin() == null || field.alertMax() == null) {
+            return false;
+        }
+
+        boolean insideRange = value >= field.alertMin() && value <= field.alertMax();
+        boolean rangeMatches = "IN_RANGE".equalsIgnoreCase(rule.rangeCondition()) ? insideRange : !insideRange;
+        if (!rangeMatches) return false;
+
+        Double speed = asDouble(data.speed());
+        double minimumSpeed = rule.minSpeed() == null ? 0.0 : rule.minSpeed();
+        boolean moving = speed != null && speed > minimumSpeed;
+        if (Boolean.TRUE.equals(rule.requireMoving()) && !moving) return false;
+        if (Boolean.TRUE.equals(rule.requireIgnitionOn()) && !ignitionIsOn(data)) return false;
+
+        if (rule.stationaryDurationSeconds() != null) {
+            if (Boolean.TRUE.equals(rule.requireMoving()) || moving) return false;
+            Instant stoppedSince = advancedConditionSince.computeIfAbsent(stateKey + ":stopped", ignored -> Instant.now());
+            return !Instant.now().isBefore(stoppedSince.plusSeconds(rule.stationaryDurationSeconds()));
+        }
+        advancedConditionSince.remove(stateKey + ":stopped");
+        return true;
+    }
+
+    private Double valueForRule(ProtocolTelemetryData data, String targetField) {
+        if ("temperature".equalsIgnoreCase(targetField)) return data.temperatureValue();
+        if ("speed".equalsIgnoreCase(targetField)) return asDouble(data.speed());
+        if (data.customFields() == null) return null;
+        return data.customFields().entrySet().stream()
+                .filter(entry -> targetField.equalsIgnoreCase(entry.getKey()))
+                .map(Map.Entry::getValue)
+                .map(this::asDouble)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private boolean ignitionIsOn(ProtocolTelemetryData data) {
+        if (Boolean.TRUE.equals(data.ignitionOn())) return true;
+        if (data.customFields() == null) return false;
+        return data.customFields().entrySet().stream()
+                .filter(entry -> List.of("ignition", "engineOn", "vehicleOn", "encendido").stream().anyMatch(key -> key.equalsIgnoreCase(entry.getKey())))
+                .map(Map.Entry::getValue)
+                .anyMatch(value -> "true".equalsIgnoreCase(String.valueOf(value)) || "1".equals(String.valueOf(value)) || "on".equalsIgnoreCase(String.valueOf(value)) || "encendido".equalsIgnoreCase(String.valueOf(value)));
+    }
+
+    private String ruleDescription(AdvancedAlertRuleResponse rule) {
+        String range = "IN_RANGE".equalsIgnoreCase(rule.rangeCondition()) ? "dentro de rango" : "fuera de rango";
+        String movement = Boolean.TRUE.equals(rule.requireMoving()) ? " y en movimiento" : "";
+        String ignition = Boolean.TRUE.equals(rule.requireIgnitionOn()) ? " y encendido" : "";
+        String stopped = rule.stationaryDurationSeconds() == null ? "" : " y detenido por " + rule.stationaryDurationSeconds() + " segundos";
+        return rule.conditionField() + " " + range + movement + ignition + stopped;
+    }
+
+    private String normalizeRulePart(String value) {
+        return value == null ? "FIELD" : value.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_");
     }
 
     private void processDoor(VehicleResponse vehicle, ProtocolTelemetryData data) {

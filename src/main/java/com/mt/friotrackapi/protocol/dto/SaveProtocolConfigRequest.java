@@ -12,6 +12,7 @@ public record SaveProtocolConfigRequest(
         @NotBlank String topicPattern,
         String payloadRoot,
         @Valid List<ProtocolFieldConfigResponse> fields,
-        TemperatureRulesResponse temperatureRules
+        TemperatureRulesResponse temperatureRules,
+        List<AdvancedAlertRuleResponse> advancedAlertRules
 ) {
 }

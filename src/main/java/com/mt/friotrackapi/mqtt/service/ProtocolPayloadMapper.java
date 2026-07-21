@@ -35,6 +35,7 @@ public class ProtocolPayloadMapper {
         String humidity = null;
         String doorState = null;
         String coolingUnitState = null;
+        Boolean ignitionOn = null;
         String fuelLevel = null;
         String speed = null;
         Double latitude = null;
@@ -70,6 +71,10 @@ public class ProtocolPayloadMapper {
                         case "humidity" -> humidity = formatWithUnit(asDouble(node, field), field.unit());
                         case "doorState" -> doorState = doorState(node, field);
                         case "coolingUnitState" -> coolingUnitState = coolingUnitState(node, field);
+                        case "ignitionState" -> {
+                            ignitionOn = asBoolean(node);
+                            customFields.put("ignitionState", ignitionOn);
+                        }
                         case "fuelLevel" -> fuelLevel = formatWithUnit(asDouble(node, field), field.unit());
                         case "speed" -> speed = formatWithUnit(asDouble(node, field), field.unit());
                         case "latitude" -> latitude = asDouble(node, field);
@@ -84,7 +89,7 @@ public class ProtocolPayloadMapper {
             errors.add("JSON invalido: " + ex.getMessage());
         }
 
-        return new ProtocolTelemetryData(temperature, temperatureValue, temperatureState, humidity, doorState, coolingUnitState, fuelLevel, speed, latitude, longitude, customFields, errors);
+        return new ProtocolTelemetryData(temperature, temperatureValue, temperatureState, humidity, doorState, coolingUnitState, ignitionOn, fuelLevel, speed, latitude, longitude, customFields, errors);
     }
 
     private JsonNode sourceRoot(JsonNode root, String payloadRoot, List<String> errors) {

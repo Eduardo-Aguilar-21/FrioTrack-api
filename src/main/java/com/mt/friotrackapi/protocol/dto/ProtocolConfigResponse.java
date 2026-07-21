@@ -11,6 +11,7 @@ public record ProtocolConfigResponse(
         String payloadRoot,
         List<ProtocolFieldConfigResponse> fields,
         TemperatureRulesResponse temperatureRules,
+        List<AdvancedAlertRuleResponse> advancedAlertRules,
         Map<String, Object> previewPayload
 ) {
 }

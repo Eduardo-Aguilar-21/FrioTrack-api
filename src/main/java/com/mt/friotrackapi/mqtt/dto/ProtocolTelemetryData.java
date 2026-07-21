@@ -10,6 +10,7 @@ public record ProtocolTelemetryData(
         String humidity,
         String doorState,
         String coolingUnitState,
+        Boolean ignitionOn,
         String fuelLevel,
         String speed,
         Double latitude,

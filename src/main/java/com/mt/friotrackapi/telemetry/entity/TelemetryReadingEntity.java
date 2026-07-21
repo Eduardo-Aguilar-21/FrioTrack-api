@@ -40,4 +40,6 @@ public class TelemetryReadingEntity {
     public String getSpeed() { return speed; }
     public Double getLatitude() { return latitude; }
     public Double getLongitude() { return longitude; }
+    public String getCustomFields() { return customFields; }
+    public String getRawPayload() { return rawPayload; }
 }

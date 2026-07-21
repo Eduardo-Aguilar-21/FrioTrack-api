@@ -31,6 +31,7 @@ class ProtocolPayloadMapperTest {
                         new ProtocolFieldConfigResponse("battery", "Bateria", true, "bateria", "NUMBER", "%", "88", "battery", false, "NONE", "", null, null, "fa-solid fa-battery-half")
                 ),
                 new TemperatureRulesResponse(-2.0, 5.0, -5.0, 8.0),
+                List.of(),
                 Map.of()
         ));
 

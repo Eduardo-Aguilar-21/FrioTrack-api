@@ -9,6 +9,7 @@ import com.mt.friotrackapi.protocol.dto.ProtocolConfigResponse;
 import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
 import com.mt.friotrackapi.protocol.dto.SaveProtocolConfigRequest;
 import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
+import com.mt.friotrackapi.protocol.dto.AdvancedAlertRuleResponse;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -159,7 +160,8 @@ public class ProtocolConfigService {
                 clean(request.topicPattern()),
                 cleanOptional(request.payloadRoot()),
                 request.fields() == null ? List.of() : request.fields().stream().map(this::normalizeField).toList(),
-                rulesFromFields(request.fields(), request.temperatureRules())
+                rulesFromFields(request.fields(), request.temperatureRules()),
+                normalizeAdvancedRules(request.advancedAlertRules())
         );
         configs.put(request.companyId(), config);
         saveConfigs();
@@ -176,6 +178,7 @@ public class ProtocolConfigService {
                 config.payloadRoot(),
                 fields,
                 rulesOrDefault(config.temperatureRules()),
+                config.advancedAlertRules() == null ? List.of() : config.advancedAlertRules(),
                 previewPayload(config.payloadRoot(), fields)
         );
     }
@@ -202,7 +205,8 @@ public class ProtocolConfigService {
                 config.topicPattern(),
                 config.payloadRoot(),
                 merged,
-                config.temperatureRules()
+                config.temperatureRules(),
+                config.advancedAlertRules()
         );
     }
 
@@ -289,6 +293,7 @@ public class ProtocolConfigService {
             case "temperature" -> "fa-solid fa-temperature-half";
             case "humidity" -> "fa-solid fa-droplet";
             case "doorState" -> "fa-solid fa-door-open";
+            case "ignitionState" -> "fa-solid fa-power-off";
             case "coolingUnitState" -> "fa-regular fa-snowflake";
             case "fuelLevel" -> "fa-solid fa-gas-pump";
             case "speed" -> "fa-solid fa-gauge-high";
@@ -447,13 +452,15 @@ public class ProtocolConfigService {
                         new ProtocolFieldConfigResponse("humidity", "Humedad", true, "humedad", "NUMBER", "%", "45", "humidity", false, "NONE", "", null, null, "fa-solid fa-droplet"),
                         new ProtocolFieldConfigResponse("doorState", "Puerta", true, "puerta", "BOOLEAN", "", "false", "doorState", false, "ACTIVATION", "true", null, null, "fa-solid fa-door-open"),
                         new ProtocolFieldConfigResponse("coolingUnitState", "Equipo de frio", true, "equipoFrio", "BOOLEAN", "", "true", "coolingUnitState", false, "ACTIVATION", "false", null, null, "fa-regular fa-snowflake"),
+                        new ProtocolFieldConfigResponse("ignitionState", "Vehiculo encendido", true, "encendido", "BOOLEAN", "", "true", "ignitionState", false, "NONE", "", null, null, "fa-solid fa-power-off"),
                         new ProtocolFieldConfigResponse("fuelLevel", "Combustible", true, "combustible", "NUMBER", "%", "65", "fuelLevel", false, "NONE", "", null, null, "fa-solid fa-gas-pump"),
                         new ProtocolFieldConfigResponse("speed", "Velocidad", true, "velocidad", "NUMBER", "km/h", "65", "speed", false, "NONE", "", null, null, "fa-solid fa-gauge-high"),
                         new ProtocolFieldConfigResponse("latitude", "Latitud", true, "ubicacion.lat", "NUMBER", "", "-12.0576", "latitude", false, "NONE", "", null, null, "fa-solid fa-location-dot"),
                         new ProtocolFieldConfigResponse("longitude", "Longitud", true, "ubicacion.lng", "NUMBER", "", "-76.9649", "longitude", false, "NONE", "", null, null, "fa-solid fa-location-dot"),
                         new ProtocolFieldConfigResponse("battery", "Bateria", false, "bateria", "NUMBER", "%", "92", "battery", false, "NONE", "", null, null, "fa-solid fa-battery-half")
                 ),
-                defaultTemperatureRules()
+                defaultTemperatureRules(),
+                List.of()
         );
     }
 
@@ -498,7 +505,7 @@ public class ProtocolConfigService {
     }
 
     private String normalizeDataType(String dataType, String targetField) {
-        if ("doorState".equalsIgnoreCase(clean(targetField)) || "coolingUnitState".equalsIgnoreCase(clean(targetField))) {
+        if ("doorState".equalsIgnoreCase(clean(targetField)) || "coolingUnitState".equalsIgnoreCase(clean(targetField)) || "ignitionState".equalsIgnoreCase(clean(targetField))) {
             return "BOOLEAN";
         }
         String normalized = clean(dataType).toUpperCase();
@@ -515,7 +522,23 @@ public class ProtocolConfigService {
             String topicPattern,
             String payloadRoot,
             List<ProtocolFieldConfigResponse> fields,
-            TemperatureRulesResponse temperatureRules
+            TemperatureRulesResponse temperatureRules,
+            List<AdvancedAlertRuleResponse> advancedAlertRules
     ) {
+    }
+
+    private List<AdvancedAlertRuleResponse> normalizeAdvancedRules(List<AdvancedAlertRuleResponse> rules) {
+        if (rules == null) return List.of();
+        return rules.stream().map(rule -> new AdvancedAlertRuleResponse(
+                Boolean.TRUE.equals(rule.enabled()),
+                cleanOptional(rule.name()).isBlank() ? "Regla avanzada" : cleanOptional(rule.name()),
+                cleanOptional(rule.conditionField()).isBlank() ? "temperature" : cleanOptional(rule.conditionField()),
+                "IN_RANGE".equalsIgnoreCase(clean(rule.rangeCondition())) ? "IN_RANGE" : "OUT_OF_RANGE",
+                Boolean.TRUE.equals(rule.requireMoving()),
+                rule.minSpeed() == null || rule.minSpeed() < 0 ? null : rule.minSpeed(),
+                Boolean.TRUE.equals(rule.requireIgnitionOn()),
+                rule.stationaryDurationSeconds() == null || rule.stationaryDurationSeconds() <= 0 ? null : rule.stationaryDurationSeconds(),
+                rule.persistenceSeconds() == null || rule.persistenceSeconds() <= 0 ? 60L : rule.persistenceSeconds()
+        )).toList();
     }
 }
