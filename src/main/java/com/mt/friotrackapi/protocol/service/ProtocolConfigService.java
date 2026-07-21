@@ -35,6 +35,8 @@ public class ProtocolConfigService {
     public ProtocolConfigResponse findByCompany(Long companyId) {
         companyService.findById(companyId);
         StoredProtocolConfig config = configs.computeIfAbsent(companyId, this::defaultConfig);
+        config = withBaseFields(config);
+        configs.put(companyId, config);
         saveConfigs();
         return toResponse(config);
     }
@@ -165,9 +167,7 @@ public class ProtocolConfigService {
     }
 
     private ProtocolConfigResponse toResponse(StoredProtocolConfig config) {
-        List<ProtocolFieldConfigResponse> fields = config.fields() == null
-                ? defaultConfig(config.companyId()).fields()
-                : config.fields().stream().map(this::normalizeField).toList();
+        List<ProtocolFieldConfigResponse> fields = withBaseFields(config).fields().stream().map(this::normalizeField).toList();
         return new ProtocolConfigResponse(
                 config.companyId(),
                 config.brokerName(),
@@ -178,6 +178,37 @@ public class ProtocolConfigService {
                 rulesOrDefault(config.temperatureRules()),
                 previewPayload(config.payloadRoot(), fields)
         );
+    }
+
+    private StoredProtocolConfig withBaseFields(StoredProtocolConfig config) {
+        List<ProtocolFieldConfigResponse> currentFields = config.fields() == null ? List.of() : config.fields();
+        List<ProtocolFieldConfigResponse> baseFields = defaultConfig(config.companyId()).fields();
+        Map<String, ProtocolFieldConfigResponse> currentByTarget = new LinkedHashMap<>();
+
+        for (ProtocolFieldConfigResponse field : currentFields) {
+            currentByTarget.put(fieldIdentity(field), field);
+        }
+
+        List<ProtocolFieldConfigResponse> merged = new java.util.ArrayList<>();
+        for (ProtocolFieldConfigResponse baseField : baseFields) {
+            ProtocolFieldConfigResponse current = currentByTarget.remove(fieldIdentity(baseField));
+            merged.add(current == null ? baseField : current);
+        }
+        merged.addAll(currentByTarget.values());
+
+        return new StoredProtocolConfig(
+                config.companyId(),
+                config.brokerName(),
+                config.topicPattern(),
+                config.payloadRoot(),
+                merged,
+                config.temperatureRules()
+        );
+    }
+
+    private String fieldIdentity(ProtocolFieldConfigResponse field) {
+        String targetField = clean(field.targetField());
+        return targetField.isBlank() ? clean(field.key()) : targetField;
     }
 
     private ProtocolFieldConfigResponse normalizeField(ProtocolFieldConfigResponse field) {
