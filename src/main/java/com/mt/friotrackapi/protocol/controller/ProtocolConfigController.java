@@ -27,8 +27,8 @@ public class ProtocolConfigController {
     }
 
     @GetMapping
-    public ApiResponse<ProtocolConfigResponse> findByCompany(@RequestParam(required = false) Long companyId) {
-        return ApiResponse.ok(protocolConfigService.findByCompany(tenantAccessService.resolveCompanyId(companyId)));
+    public ApiResponse<ProtocolConfigResponse> findByCompany(@RequestParam(required = false) Long companyId, @RequestParam(defaultValue = "mqtt") String protocol) {
+        return ApiResponse.ok(protocolConfigService.findByCompany(tenantAccessService.resolveCompanyId(companyId), protocol));
     }
 
     @PreAuthorize("hasRole('SA')")
@@ -38,6 +38,7 @@ public class ProtocolConfigController {
         tenantAccessService.requireCompany(companyId);
         SaveProtocolConfigRequest scoped = new SaveProtocolConfigRequest(
                 companyId,
+                request.protocol(),
                 request.brokerName(),
                 request.topicPattern(),
                 request.payloadRoot(),

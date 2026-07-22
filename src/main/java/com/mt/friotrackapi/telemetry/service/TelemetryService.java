@@ -1,5 +1,7 @@
 package com.mt.friotrackapi.telemetry.service;
 
+import com.mt.friotrackapi.common.dto.PageResponse;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.mqtt.dto.ProtocolTelemetryData;
@@ -8,6 +10,7 @@ import com.mt.friotrackapi.realtime.service.RealtimeEventService;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
+import com.mt.friotrackapi.telemetry.dto.TelemetryReadingResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperatureChartResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
 import com.mt.friotrackapi.telemetry.dto.UpdateTelemetrySnapshotRequest;
@@ -55,7 +58,7 @@ public class TelemetryService {
 
     public TelemetrySnapshotResponse snapshot(Long vehicleId) {
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
-        return maskSnapshot(vehicle.companyId(), rawSnapshot(vehicle));
+        return maskSnapshot(vehicle, rawSnapshot(vehicle));
     }
 
     @Transactional
@@ -69,7 +72,7 @@ public class TelemetryService {
         Map<String, Object> customFields = new LinkedHashMap<>(current.customFields() == null ? Map.of() : current.customFields());
         if (data.customFields() != null) customFields.putAll(data.customFields());
 
-        String targetRange = protocolConfigService.targetRangeLabel(vehicle.companyId());
+        String targetRange = protocolConfigService.targetRangeLabel(vehicle.companyId(), vehicle.detectedProtocol());
         TelemetrySnapshotResponse snapshot = new TelemetrySnapshotResponse(
                 vehicle.id(),
                 data.temperature() == null ? current.temperature() : data.temperature(),
@@ -90,7 +93,7 @@ public class TelemetryService {
         saveSnapshot(vehicle.id(), snapshot);
         persistReading(vehicle, data, customFields, rawPayload);
 
-        TelemetrySnapshotResponse response = maskSnapshot(vehicle.companyId(), snapshot);
+        TelemetrySnapshotResponse response = maskSnapshot(vehicle, snapshot);
         realtimeEventService.publish(vehicle.companyId(), "telemetry", Map.of("vehicleId", vehicle.id(), "snapshot", response));
         return response;
     }
@@ -118,14 +121,14 @@ public class TelemetryService {
                 request.address(), request.lastCommunication(), current.customFields() == null ? Map.of() : current.customFields()
         );
         saveSnapshot(request.vehicleId(), snapshot);
-        TelemetrySnapshotResponse response = maskSnapshot(vehicle.companyId(), snapshot);
+        TelemetrySnapshotResponse response = maskSnapshot(vehicle, snapshot);
         realtimeEventService.publish(vehicle.companyId(), "telemetry", Map.of("vehicleId", request.vehicleId(), "snapshot", response));
         return response;
     }
 
     public List<TemperaturePointResponse> temperatureHistory(Long vehicleId) {
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
-        if (!protocolConfigService.isFieldEnabled(vehicle.companyId(), "temperature")) return List.of();
+        if (!protocolConfigService.isFieldEnabled(vehicle.companyId(), vehicle.detectedProtocol(), "temperature")) return List.of();
         return entityManager.createQuery("select r from TelemetryReadingEntity r where r.vehicle.id = :vehicleId and r.temperature is not null order by r.recordedAt asc", TelemetryReadingEntity.class)
                 .setParameter("vehicleId", vehicleId)
                 .setMaxResults(48)
@@ -179,8 +182,25 @@ public class TelemetryService {
                 .setMaxResults(50)
                 .getResultList().stream()
                 .map(this::toEventResponse)
-                .filter(event -> protocolConfigService.isEventTypeEnabled(vehicle.companyId(), event.type()))
+                .filter(event -> protocolConfigService.isEventTypeEnabled(vehicle.companyId(), vehicle.detectedProtocol(), event.type()))
                 .toList();
+    }
+
+
+    public PageResponse<VehicleEventResponse> eventPage(Long vehicleId, int requestedPage, int requestedSize) {
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        int page = Math.max(0, requestedPage);
+        int size = Math.max(1, Math.min(requestedSize, 200));
+        long total = entityManager.createQuery("select count(e) from VehicleEventEntity e where e.vehicle.id = :vehicleId", Long.class)
+                .setParameter("vehicleId", vehicleId).getSingleResult();
+        List<VehicleEventResponse> items = entityManager.createQuery(
+                        "select e from VehicleEventEntity e where e.vehicle.id = :vehicleId order by e.occurredAt desc",
+                        VehicleEventEntity.class)
+                .setParameter("vehicleId", vehicleId).setFirstResult(page * size).setMaxResults(size)
+                .getResultList().stream().map(this::toEventResponse)
+                .filter(event -> protocolConfigService.isEventTypeEnabled(vehicle.companyId(), vehicle.detectedProtocol(), event.type()))
+                .toList();
+        return PageResponse.fromPage(items, page, size, total);
     }
 
     @Transactional
@@ -194,6 +214,28 @@ public class TelemetryService {
         return response;
     }
 
+
+    public PageResponse<TelemetryReadingResponse> readingPage(Long vehicleId, int days, int requestedPage, int requestedSize) {
+        int page = Math.max(0, requestedPage);
+        int size = Math.max(1, Math.min(requestedSize, 200));
+        Instant from = Instant.now().minusSeconds(Math.max(1, Math.min(days, 365)) * 86400L);
+        long total = entityManager.createQuery(
+                        "select count(r) from TelemetryReadingEntity r where r.vehicle.id = :vehicleId and r.recordedAt >= :from",
+                        Long.class)
+                .setParameter("vehicleId", vehicleId).setParameter("from", from).getSingleResult();
+        List<TelemetryReadingResponse> items = entityManager.createQuery(
+                        "select r from TelemetryReadingEntity r where r.vehicle.id = :vehicleId and r.recordedAt >= :from order by r.recordedAt desc",
+                        TelemetryReadingEntity.class)
+                .setParameter("vehicleId", vehicleId).setParameter("from", from)
+                .setFirstResult(page * size).setMaxResults(size).getResultList().stream()
+                .map(r -> new TelemetryReadingResponse(
+                        r.getId(), r.getRecordedAt(), r.getLatitude(), r.getLongitude(), r.getTemperature(),
+                        r.getHumidity(), r.getDoorState(), r.getCoolingUnitState(), r.getSpeed(), r.getFuelLevel(),
+                        r.getCustomFields()))
+                .toList();
+        return PageResponse.fromPage(items, page, size, total);
+    }
+
     public List<TelemetryReadingEntity> readings(Long vehicleId, int days) {
         Instant from = Instant.now().minusSeconds(Math.max(1, days) * 86400L);
         return entityManager.createQuery("select r from TelemetryReadingEntity r where r.vehicle.id = :vehicleId and r.recordedAt >= :from order by r.recordedAt asc", TelemetryReadingEntity.class)
@@ -205,7 +247,7 @@ public class TelemetryService {
     private TelemetrySnapshotResponse rawSnapshot(VehicleResponse vehicle) {
         TelemetrySnapshotEntity entity = entityManager.find(TelemetrySnapshotEntity.class, vehicle.id());
         if (entity == null) {
-            return new TelemetrySnapshotResponse(vehicle.id(), vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(), vehicle.temperatureState(), "--", vehicle.doorState(), vehicle.coolingUnitState(), "--", "--", protocolConfigService.targetRangeLabel(vehicle.companyId()), vehicle.latitude(), vehicle.longitude(), "Sin direccion registrada", vehicle.lastCommunication(), Map.of());
+            return new TelemetrySnapshotResponse(vehicle.id(), vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature(), vehicle.temperatureState(), "--", vehicle.doorState(), vehicle.coolingUnitState(), "--", "--", protocolConfigService.targetRangeLabel(vehicle.companyId(), vehicle.detectedProtocol()), vehicle.latitude(), vehicle.longitude(), "Sin direccion registrada", vehicle.lastCommunication(), Map.of());
         }
         return new TelemetrySnapshotResponse(vehicle.id(), entity.getTemperature(), entity.getTemperatureState(), entity.getHumidity(), entity.getDoorState(), entity.getCoolingUnitState(), entity.getFuelLevel(), entity.getSpeed(), entity.getTargetRange(), entity.getLatitude(), entity.getLongitude(), entity.getAddress(), entity.getLastCommunication(), readMap(entity.getCustomFields()));
     }
@@ -225,22 +267,24 @@ public class TelemetryService {
         entityManager.persist(new TelemetryReadingEntity(entity, vehicle.companyId(), Instant.now(), data.temperatureValue(), data.humidity(), data.doorState(), data.coolingUnitState(), data.fuelLevel(), data.speed(), data.latitude(), data.longitude(), writeMap(customFields), rawPayload));
     }
 
-    private TelemetrySnapshotResponse maskSnapshot(Long companyId, TelemetrySnapshotResponse snapshot) {
-        boolean temperature = protocolConfigService.isFieldEnabled(companyId, "temperature");
-        boolean humidity = protocolConfigService.isFieldEnabled(companyId, "humidity");
-        boolean door = protocolConfigService.isFieldEnabled(companyId, "doorState");
-        boolean cooling = protocolConfigService.isFieldEnabled(companyId, "coolingUnitState");
-        boolean fuel = protocolConfigService.isFieldEnabled(companyId, "fuelLevel");
-        boolean speed = protocolConfigService.isFieldEnabled(companyId, "speed");
-        boolean latitude = protocolConfigService.isFieldEnabled(companyId, "latitude");
-        boolean longitude = protocolConfigService.isFieldEnabled(companyId, "longitude");
-        return new TelemetrySnapshotResponse(snapshot.vehicleId(), temperature ? snapshot.temperature() : null, temperature ? snapshot.temperatureState() : null, humidity ? snapshot.humidity() : null, door ? snapshot.doorState() : null, cooling ? snapshot.coolingUnitState() : null, fuel ? snapshot.fuelLevel() : null, speed ? snapshot.speed() : null, temperature ? snapshot.targetRange() : null, latitude ? snapshot.latitude() : null, longitude ? snapshot.longitude() : null, latitude && longitude ? snapshot.address() : null, snapshot.lastCommunication(), maskCustomFields(companyId, snapshot.customFields()));
+    private TelemetrySnapshotResponse maskSnapshot(VehicleResponse vehicle, TelemetrySnapshotResponse snapshot) {
+        Long companyId = vehicle.companyId();
+        String protocol = vehicle.detectedProtocol();
+        boolean temperature = protocolConfigService.isFieldEnabled(companyId, protocol, "temperature");
+        boolean humidity = protocolConfigService.isFieldEnabled(companyId, protocol, "humidity");
+        boolean door = protocolConfigService.isFieldEnabled(companyId, protocol, "doorState");
+        boolean cooling = protocolConfigService.isFieldEnabled(companyId, protocol, "coolingUnitState");
+        boolean fuel = protocolConfigService.isFieldEnabled(companyId, protocol, "fuelLevel");
+        boolean speed = protocolConfigService.isFieldEnabled(companyId, protocol, "speed");
+        boolean latitude = protocolConfigService.isFieldEnabled(companyId, protocol, "latitude");
+        boolean longitude = protocolConfigService.isFieldEnabled(companyId, protocol, "longitude");
+        return new TelemetrySnapshotResponse(snapshot.vehicleId(), temperature ? snapshot.temperature() : null, temperature ? snapshot.temperatureState() : null, humidity ? snapshot.humidity() : null, door ? snapshot.doorState() : null, cooling ? snapshot.coolingUnitState() : null, fuel ? snapshot.fuelLevel() : null, speed ? snapshot.speed() : null, temperature ? snapshot.targetRange() : null, latitude ? snapshot.latitude() : null, longitude ? snapshot.longitude() : null, latitude && longitude ? snapshot.address() : null, snapshot.lastCommunication(), maskCustomFields(companyId, protocol, snapshot.customFields()));
     }
 
-    private Map<String, Object> maskCustomFields(Long companyId, Map<String, Object> customFields) {
+    private Map<String, Object> maskCustomFields(Long companyId, String protocol, Map<String, Object> customFields) {
         if (customFields == null || customFields.isEmpty()) return Map.of();
         Map<String, Object> visible = new LinkedHashMap<>();
-        customFields.forEach((key, value) -> { if (protocolConfigService.isFieldEnabled(companyId, key)) visible.put(key, value); });
+        customFields.forEach((key, value) -> { if (protocolConfigService.isFieldEnabled(companyId, protocol, key)) visible.put(key, value); });
         return visible;
     }
 

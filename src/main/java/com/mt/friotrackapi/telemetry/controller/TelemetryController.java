@@ -2,9 +2,11 @@ package com.mt.friotrackapi.telemetry.controller;
 
 import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.telemetry.dto.CreateVehicleEventRequest;
 import com.mt.friotrackapi.telemetry.dto.SaveTemperatureHistoryRequest;
 import com.mt.friotrackapi.telemetry.dto.TelemetrySnapshotResponse;
+import com.mt.friotrackapi.telemetry.dto.TelemetryReadingResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperatureChartResponse;
 import com.mt.friotrackapi.telemetry.dto.TemperaturePointResponse;
 import com.mt.friotrackapi.telemetry.dto.UpdateTelemetrySnapshotRequest;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -93,10 +96,29 @@ public class TelemetryController {
         return ApiResponse.ok("Historial actualizado", telemetryService.saveTemperatureHistory(normalized));
     }
 
+
+    @GetMapping("/vehicles/{vehicleId}/readings/paged")
+    public ApiResponse<PageResponse<TelemetryReadingResponse>> readingPage(
+            @PathVariable Long vehicleId,
+            @RequestParam(defaultValue = "30") int days,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        requireVehicle(vehicleId);
+        return ApiResponse.ok(telemetryService.readingPage(vehicleId, days, page, size));
+    }
+
     @GetMapping("/vehicles/{vehicleId}/events")
     public ApiResponse<List<VehicleEventResponse>> events(@PathVariable Long vehicleId) {
         requireVehicle(vehicleId);
         return ApiResponse.ok(telemetryService.events(vehicleId));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/events/paged")
+    public ApiResponse<PageResponse<VehicleEventResponse>> eventPage(
+            @PathVariable Long vehicleId, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        requireVehicle(vehicleId);
+        return ApiResponse.ok(telemetryService.eventPage(vehicleId, page, size));
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'SA')")

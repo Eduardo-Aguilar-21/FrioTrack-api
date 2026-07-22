@@ -19,8 +19,9 @@ class ProtocolPayloadMapperTest {
     @Test
     void mapsCustomFieldsAndIgnoresMissingOptionalFields() {
         ProtocolConfigService configService = mock(ProtocolConfigService.class);
-        when(configService.findByCompany(1L)).thenReturn(new ProtocolConfigResponse(
+        when(configService.findByCompany(1L, "mqtt")).thenReturn(new ProtocolConfigResponse(
                 1L,
+                "mqtt",
                 "Broker",
                 "vehiculo/{id}",
                 "vehiculo/12",

@@ -8,6 +8,7 @@ import java.util.List;
 
 public record SaveProtocolConfigRequest(
         @NotNull Long companyId,
+        @NotBlank String protocol,
         @NotBlank String brokerName,
         @NotBlank String topicPattern,
         String payloadRoot,

@@ -20,6 +20,7 @@ public record VehicleResponse(
         String temperatureState,
         String doorState,
         String coolingUnitState,
-        String lastCommunication
+        String lastCommunication,
+        String detectedProtocol
 ) {
 }

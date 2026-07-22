@@ -37,16 +37,16 @@ public class DashboardService {
     public DashboardSummaryResponse summary(Long companyId) {
         List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
         Counts counts = countStatuses(vehicles);
-        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
+        List<VehicleResponse> temperatureVehicles = vehicles.stream()
+                .filter(vehicle -> isFieldEnabled(vehicle, "temperature"))
+                .toList();
 
-        OptionalDouble average = temperatureEnabled
-                ? vehicles.stream()
-                        .map(VehicleResponse::currentTemperature)
-                        .map(DashboardService::parseTemperature)
-                        .filter(Double::isFinite)
-                        .mapToDouble(Double::doubleValue)
-                        .average()
-                : OptionalDouble.empty();
+        OptionalDouble average = temperatureVehicles.stream()
+                .map(VehicleResponse::currentTemperature)
+                .map(DashboardService::parseTemperature)
+                .filter(Double::isFinite)
+                .mapToDouble(Double::doubleValue)
+                .average();
 
         String averageTemperature = average.isPresent()
                 ? String.format(Locale.US, "%.1f °C", average.getAsDouble())
@@ -64,19 +64,15 @@ public class DashboardService {
                 counts.offline(),
                 percent(counts.offline(), total),
                 averageTemperature,
-                average.isPresent() ? averageTemperatureState(companyId, average.getAsDouble()) : null
+                average.isPresent() ? averageTemperatureState(temperatureVehicles, average.getAsDouble()) : null
         );
     }
 
     public List<FleetMapVehicleResponse> fleetMap(Long companyId) {
-        boolean latitudeEnabled = protocolConfigService.isFieldEnabled(companyId, "latitude");
-        boolean longitudeEnabled = protocolConfigService.isFieldEnabled(companyId, "longitude");
-        if (!latitudeEnabled || !longitudeEnabled) {
-            return List.of();
-        }
-
-        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
-        List<VehicleResponse> vehicles = vehicleService.findAll(companyId);
+        List<VehicleResponse> vehicles = vehicleService.findAll(companyId).stream()
+                .filter(vehicle -> isFieldEnabled(vehicle, "latitude") && isFieldEnabled(vehicle, "longitude"))
+                .filter(vehicle -> vehicle.latitude() != null && vehicle.longitude() != null)
+                .toList();
         MapCenter center = mapCenter(vehicles);
         return vehicles.stream()
                 .map(vehicle -> new FleetMapVehicleResponse(
@@ -90,39 +86,46 @@ public class DashboardService {
                         vehicle.status(),
                         statusLabel(vehicle.status()),
                         statusColor(vehicle.status()),
-                        temperatureEnabled ? (vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()) : null
+                        isFieldEnabled(vehicle, "temperature") ? (vehicle.currentTemperature() == null ? "Sin datos" : vehicle.currentTemperature()) : null
                 ))
                 .toList();
     }
 
     public List<VehicleStatusResponse> vehicleStatus(Long companyId) {
-        boolean temperatureEnabled = protocolConfigService.isFieldEnabled(companyId, "temperature");
-        boolean doorEnabled = protocolConfigService.isFieldEnabled(companyId, "doorState");
-        boolean coolingEnabled = protocolConfigService.isFieldEnabled(companyId, "coolingUnitState");
-
         return vehicleService.findAll(companyId).stream()
-                .map(vehicle -> new VehicleStatusResponse(
-                        vehicle.id(),
-                        vehicle.label(),
-                        statusLabel(vehicle.status()),
-                        statusColorKey(vehicle.status()),
-                        temperatureEnabled ? (vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature()) : null,
-                        temperatureEnabled ? vehicle.temperatureState() : null,
-                        temperatureEnabled ? statusColorKey(vehicle.temperatureState()) : null,
-                        doorEnabled ? vehicle.doorState() : null,
-                        coolingEnabled ? vehicle.coolingUnitState() : null,
-                        vehicle.lastCommunication()
-                ))
+                .map(vehicle -> {
+                    boolean temperatureEnabled = isFieldEnabled(vehicle, "temperature");
+                    return new VehicleStatusResponse(
+                            vehicle.id(),
+                            vehicle.label(),
+                            statusLabel(vehicle.status()),
+                            statusColorKey(vehicle.status()),
+                            temperatureEnabled ? (vehicle.currentTemperature() == null ? "--" : vehicle.currentTemperature()) : null,
+                            temperatureEnabled ? vehicle.temperatureState() : null,
+                            temperatureEnabled ? statusColorKey(vehicle.temperatureState()) : null,
+                            isFieldEnabled(vehicle, "doorState") ? vehicle.doorState() : null,
+                            isFieldEnabled(vehicle, "coolingUnitState") ? vehicle.coolingUnitState() : null,
+                            vehicle.lastCommunication()
+                    );
+                })
                 .toList();
     }
 
     public TemperatureDistributionResponse temperatureDistribution(Long companyId) {
-        if (!protocolConfigService.isFieldEnabled(companyId, "temperature")) {
+        List<VehicleResponse> vehicles = vehicleService.findAll(companyId).stream()
+                .filter(vehicle -> isFieldEnabled(vehicle, "temperature"))
+                .toList();
+        if (vehicles.isEmpty()) {
             return new TemperatureDistributionResponse(0, 0, 0, 0, 0, 0, 0, 0, 0, null);
         }
 
-        Counts counts = countStatuses(vehicleService.findAll(companyId));
+        Counts counts = countStatuses(vehicles);
         int total = counts.total();
+        List<String> ranges = vehicles.stream()
+                .map(vehicle -> protocolConfigService.targetRangeLabel(vehicle.companyId(), vehicle.detectedProtocol()))
+                .distinct()
+                .toList();
+        String rangeLabel = ranges.size() == 1 ? ranges.get(0) : "Segun contrato del vehiculo";
         return new TemperatureDistributionResponse(
                 total,
                 counts.inRange(),
@@ -133,7 +136,7 @@ public class DashboardService {
                 percent(counts.outOfRange(), total),
                 counts.offline(),
                 percent(counts.offline(), total),
-                protocolConfigService.targetRangeLabel(companyId)
+                rangeLabel
         );
     }
 
@@ -223,12 +226,16 @@ public class DashboardService {
         return total == 0 ? 0 : Math.round((value * 100.0f) / total);
     }
 
-    private String averageTemperatureState(Long companyId, double average) {
-        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(companyId);
-        if (average < rules.minAllowed() || average > rules.maxAllowed()) {
-            return "fuera de rango";
-        }
-        return "en rango";
+    private String averageTemperatureState(List<VehicleResponse> vehicles, double average) {
+        boolean outsideAnyContract = vehicles.stream().anyMatch(vehicle -> {
+            TemperatureRulesResponse rules = protocolConfigService.temperatureRules(vehicle.companyId(), vehicle.detectedProtocol());
+            return average < rules.minAllowed() || average > rules.maxAllowed();
+        });
+        return outsideAnyContract ? "fuera de rango" : "en rango";
+    }
+
+    private boolean isFieldEnabled(VehicleResponse vehicle, String targetField) {
+        return protocolConfigService.isFieldEnabled(vehicle.companyId(), vehicle.detectedProtocol(), targetField);
     }
 
     private static MapCenter mapCenter(List<VehicleResponse> vehicles) {

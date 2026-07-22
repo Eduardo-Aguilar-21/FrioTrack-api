@@ -3,6 +3,7 @@ package com.mt.friotrackapi.tracking.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.telemetry.entity.TelemetryReadingEntity;
 import com.mt.friotrackapi.telemetry.entity.VehicleEventEntity;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TrackingService {
@@ -52,6 +54,7 @@ public class TrackingService {
         this.protocolConfigService = protocolConfigService;
     }
 
+    @Transactional
     public List<TripResponse> trips(Long vehicleId, int days) {
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
         List<TelemetryReadingEntity> readings = telemetryService.readings(vehicleId, days).stream()
@@ -61,13 +64,88 @@ public class TrackingService {
 
         List<List<TelemetryReadingEntity>> groups = segmentTrips(readings);
 
-        Range range = parseRange(protocolConfigService.targetRangeLabel(vehicle.companyId()));
+        Range range = parseRange(protocolConfigService.targetRangeLabel(vehicle.companyId(), vehicle.detectedProtocol()));
         List<TripResponse> result = new ArrayList<>();
         for (int i = 0; i < groups.size(); i++) {
             result.add(toTrip(vehicle, groups.get(i), i + 1, range));
         }
         java.util.Collections.reverse(result);
         return result;
+    }
+
+
+    @Transactional(readOnly = true)
+    public PageResponse<TripResponse> tripPage(Long vehicleId, int days, int requestedPage, int requestedSize) {
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        int page = Math.max(0, requestedPage);
+        int size = Math.max(1, Math.min(requestedSize, 200));
+        Instant from = Instant.now().minusSeconds(Math.max(1, Math.min(days, 365)) * 86400L);
+        long total = ((Number) entityManager.createNativeQuery(
+                        "select count(*) from tracked_trips where vehicle_id = :vehicleId and started_at >= :from")
+                .setParameter("vehicleId", vehicleId).setParameter("from", from).getSingleResult()).longValue();
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery("""
+                select external_id, status, extract(epoch from started_at), extract(epoch from ended_at),
+                       start_latitude, start_longitude, end_latitude, end_longitude,
+                       distance_km, duration_seconds, stop_count, cast(sensor_data as text)
+                  from tracked_trips
+                 where vehicle_id = :vehicleId and started_at >= :from
+                 order by started_at desc
+                """)
+                .setParameter("vehicleId", vehicleId).setParameter("from", from)
+                .setFirstResult(page * size).setMaxResults(size).getResultList();
+        List<TripResponse> items = rows.stream().map(row -> materializedTrip(vehicle, row)).toList();
+        return PageResponse.fromPage(items, page, size, total);
+    }
+
+    private TripResponse materializedTrip(VehicleResponse vehicle, Object[] row) {
+        Instant startedAt = epochInstant(row[2]);
+        Instant endedAt = epochInstant(row[3]);
+        List<TripReadingResponse> readings;
+        try {
+            readings = objectMapper.readValue(String.valueOf(row[11]), new TypeReference<List<TripReadingResponse>>() {});
+        } catch (Exception ignored) {
+            readings = List.of();
+        }
+        int tempCount = 0;
+        int inRange = 0;
+        int doorOpenings = 0;
+        double sum = 0;
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (TripReadingResponse reading : readings) {
+            if (reading.temperature() != null) {
+                tempCount++;
+                sum += reading.temperature();
+                min = Math.min(min, reading.temperature());
+                max = Math.max(max, reading.temperature());
+                if (!reading.outOfRange()) inRange++;
+            }
+            if (reading.doorState() != null && reading.doorState().toLowerCase(Locale.ROOT).contains("abierta")) doorOpenings++;
+        }
+        long durationSeconds = row[9] == null ? 0 : ((Number) row[9]).longValue();
+        String duration = durationSeconds < 3600 ? Math.max(1, durationSeconds / 60) + " min"
+                : (durationSeconds / 3600) + " h " + ((durationSeconds % 3600) / 60) + " min";
+        Double distance = decimal(row[8]);
+        return new TripResponse(
+                String.valueOf(row[0]), "Viaje - " + vehicle.label(), date(startedAt),
+                time(startedAt) + " - " + time(endedAt), startedAt.toString(), endedAt.toString(),
+                String.valueOf(row[1]), decimal(row[4]), decimal(row[5]), decimal(row[6]), decimal(row[7]),
+                readings, String.format(Locale.US, "%.1f", distance == null ? 0 : distance),
+                tempCount == 0 ? "--" : String.format(Locale.US, "%.1f °C", sum / tempCount),
+                tempCount == 0 ? "--" : String.format(Locale.US, "%.1f °C", min),
+                tempCount == 0 ? "--" : String.format(Locale.US, "%.1f °C", max),
+                percent(inRange, tempCount), percent(tempCount - inRange, tempCount), doorOpenings, duration,
+                events(vehicle.id(), startedAt, endedAt)
+        );
+    }
+
+    private Instant epochInstant(Object value) {
+        return Instant.ofEpochMilli(Math.round(((Number) value).doubleValue() * 1000.0));
+    }
+
+    private Double decimal(Object value) {
+        return value == null ? null : ((Number) value).doubleValue();
     }
 
     public byte[] exportCsv(Long vehicleId, int days) {
@@ -126,7 +204,7 @@ public class TrackingService {
         }
         int outCount = tempCount - inRange;
         long minutes = Math.max(1, Duration.between(first.getRecordedAt(), last.getRecordedAt()).toMinutes());
-        return new TripResponse(
+        TripResponse response = new TripResponse(
                 vehicle.id() + "-" + first.getRecordedAt().toEpochMilli(),
                 "Viaje " + index + " - " + vehicle.label(),
                 date(first.getRecordedAt()),
@@ -144,6 +222,51 @@ public class TrackingService {
                 minutes < 60 ? minutes + " min" : (minutes / 60) + " h " + (minutes % 60) + " min",
                 events(vehicle.id(), first.getRecordedAt(), last.getRecordedAt())
         );
+        persistTrip(vehicle, response, first, last, distance, countStops(readings));
+        return response;
+    }
+
+    private void persistTrip(VehicleResponse vehicle, TripResponse trip, TelemetryReadingEntity first, TelemetryReadingEntity last, double distance, int stopCount) {
+        String sensorData;
+        try { sensorData = objectMapper.writeValueAsString(trip.readings()); }
+        catch (Exception ignored) { sensorData = "[]"; }
+        entityManager.createNativeQuery("""
+                INSERT INTO tracked_trips (
+                    external_id, vehicle_id, company_id, status, started_at, ended_at,
+                    start_latitude, start_longitude, end_latitude, end_longitude,
+                    distance_km, duration_seconds, stop_count, sensor_data, updated_at
+                ) VALUES (
+                    :externalId, :vehicleId, :companyId, :status, :startedAt, :endedAt,
+                    :startLatitude, :startLongitude, :endLatitude, :endLongitude,
+                    :distanceKm, :durationSeconds, :stopCount, CAST(:sensorData AS jsonb), now()
+                )
+                ON CONFLICT (external_id) DO UPDATE SET
+                    status = EXCLUDED.status, ended_at = EXCLUDED.ended_at,
+                    end_latitude = EXCLUDED.end_latitude, end_longitude = EXCLUDED.end_longitude,
+                    distance_km = EXCLUDED.distance_km, duration_seconds = EXCLUDED.duration_seconds,
+                    stop_count = EXCLUDED.stop_count, sensor_data = EXCLUDED.sensor_data, updated_at = now()
+                """)
+                .setParameter("externalId", trip.id()).setParameter("vehicleId", vehicle.id())
+                .setParameter("companyId", vehicle.companyId()).setParameter("status", trip.status())
+                .setParameter("startedAt", first.getRecordedAt()).setParameter("endedAt", last.getRecordedAt())
+                .setParameter("startLatitude", first.getLatitude()).setParameter("startLongitude", first.getLongitude())
+                .setParameter("endLatitude", last.getLatitude()).setParameter("endLongitude", last.getLongitude())
+                .setParameter("distanceKm", distance)
+                .setParameter("durationSeconds", Math.max(0, Duration.between(first.getRecordedAt(), last.getRecordedAt()).getSeconds()))
+                .setParameter("stopCount", stopCount).setParameter("sensorData", sensorData).executeUpdate();
+    }
+
+    private int countStops(List<TelemetryReadingEntity> readings) {
+        int stops = 0;
+        boolean movingBefore = false;
+        TelemetryReadingEntity previous = null;
+        for (TelemetryReadingEntity reading : readings) {
+            boolean moving = isMoving(previous, reading);
+            if (movingBefore && !moving) stops++;
+            movingBefore = moving;
+            previous = reading;
+        }
+        return stops;
     }
 
     private List<List<TelemetryReadingEntity>> segmentTrips(List<TelemetryReadingEntity> readings) {

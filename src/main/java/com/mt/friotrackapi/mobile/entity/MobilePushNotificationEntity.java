@@ -19,11 +19,19 @@ public class MobilePushNotificationEntity {
     @Column(name = "sent_at") private Instant sentAt;
     @Column(name = "received_at") private Instant receivedAt;
     @Column(name = "read_at") private Instant readAt;
+    @Column(name = "receipt_checked_at") private Instant receiptCheckedAt;
+    @Column(name = "retry_count", nullable = false) private int retryCount;
     @Column(name = "created_at", nullable = false) private Instant createdAt = Instant.now();
     protected MobilePushNotificationEntity() {}
     public MobilePushNotificationEntity(AlertEntity alert, Long companyId, Long userId, String mobileToken, String pushToken) { this.alert = alert; this.companyId = companyId; this.userId = userId; this.mobileToken = mobileToken; this.pushToken = pushToken; this.status = "PENDING"; }
-    public void sent(String ticketId) { this.status = "SENT"; this.ticketId = ticketId; this.sentAt = Instant.now(); }
-    public void failed(String reason) { this.status = "FAILED"; this.failureReason = reason; this.sentAt = Instant.now(); }
+    public void sent(String ticketId) { this.status = "SENT"; this.ticketId = ticketId; this.failureReason = null; this.sentAt = Instant.now(); }
+    public void delivered() { this.status = "DELIVERED"; this.receiptCheckedAt = Instant.now(); }
+    public void receiptFailed(String reason) { this.status = "FAILED"; this.failureReason = reason; this.receiptCheckedAt = Instant.now(); }
+    public void failed(String reason) { this.status = "FAILED"; this.failureReason = reason; this.sentAt = Instant.now(); this.retryCount++; }
     public void received() { if (!"READ".equals(this.status)) this.status = "RECEIVED"; this.receivedAt = Instant.now(); }
     public void read() { this.status = "READ"; this.readAt = Instant.now(); if (this.receivedAt == null) this.receivedAt = Instant.now(); }
+    public AlertEntity getAlert() { return alert; }
+    public String getPushToken() { return pushToken; }
+    public String getTicketId() { return ticketId; }
+    public int getRetryCount() { return retryCount; }
 }

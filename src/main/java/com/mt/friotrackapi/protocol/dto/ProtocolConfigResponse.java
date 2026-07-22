@@ -5,6 +5,7 @@ import java.util.Map;
 
 public record ProtocolConfigResponse(
         Long companyId,
+        String protocol,
         String brokerName,
         String topicPattern,
         String topicExample,

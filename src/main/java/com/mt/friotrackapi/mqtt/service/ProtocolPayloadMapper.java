@@ -26,7 +26,11 @@ public class ProtocolPayloadMapper {
     }
 
     public ProtocolTelemetryData map(Long companyId, String payload) {
-        ProtocolConfigResponse config = protocolConfigService.findByCompany(companyId);
+        return map(companyId, "mqtt", payload);
+    }
+
+    public ProtocolTelemetryData map(Long companyId, String protocol, String payload) {
+        ProtocolConfigResponse config = protocolConfigService.findByCompany(companyId, protocol);
         List<String> errors = new ArrayList<>();
 
         String temperature = null;
@@ -55,9 +59,6 @@ public class ProtocolPayloadMapper {
 
                 JsonNode node = readPath(source, field.jsonPath());
                 if (node == null || node.isMissingNode() || node.isNull()) {
-                    if (Boolean.TRUE.equals(field.required())) {
-                        errors.add("Campo requerido no encontrado: " + field.jsonPath());
-                    }
                     continue;
                 }
 

@@ -139,11 +139,13 @@ public class NotificationGroupService {
     private Set<String> allowedAlertTypes(Long companyId) {
         Set<String> allowed = new LinkedHashSet<>();
         allowed.add("OFFLINE");
-        for (ProtocolFieldConfigResponse field : protocolConfigService.findByCompany(companyId).fields()) {
-            if (field.enabled() && field.alertMode() != null && !field.alertMode().equalsIgnoreCase("NONE")) {
-                allowed.add(alertTypeForField(field));
+        protocolConfigService.findAllByCompany(companyId).forEach(config -> {
+            for (ProtocolFieldConfigResponse field : config.fields()) {
+                if (field.enabled() && field.alertMode() != null && !field.alertMode().equalsIgnoreCase("NONE")) {
+                    allowed.add(alertTypeForField(field));
+                }
             }
-        }
+        });
         return allowed;
     }
 

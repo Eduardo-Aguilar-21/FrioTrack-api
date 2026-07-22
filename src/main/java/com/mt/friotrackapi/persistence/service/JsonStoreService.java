@@ -17,7 +17,7 @@ import java.util.function.Supplier;
 @Service
 public class JsonStoreService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final ObjectProvider<AppStoreRepository> repositoryProvider;
     private final String mode;
 
@@ -94,7 +94,8 @@ public class JsonStoreService {
             entry.updatePayload(payload);
             repository.save(entry);
         } catch (Exception ex) {
-            throw new ApiException(errorMessage);
+            String detail = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+            throw new ApiException(errorMessage + ": " + detail);
         }
     }
 

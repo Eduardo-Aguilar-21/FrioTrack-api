@@ -2,6 +2,7 @@ package com.mt.friotrackapi.tracking.controller;
 
 import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.tracking.dto.TripResponse;
 import com.mt.friotrackapi.tracking.service.TrackingService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
@@ -33,6 +34,14 @@ public class TrackingController {
     public ApiResponse<List<TripResponse>> trips(@PathVariable Long vehicleId, @RequestParam(defaultValue = "7") int days) {
         requireVehicle(vehicleId);
         return ApiResponse.ok(trackingService.trips(vehicleId, days));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/trips/paged")
+    public ApiResponse<PageResponse<TripResponse>> tripPage(
+            @PathVariable Long vehicleId, @RequestParam(defaultValue = "30") int days,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        requireVehicle(vehicleId);
+        return ApiResponse.ok(trackingService.tripPage(vehicleId, days, page, size));
     }
 
     @GetMapping("/vehicles/{vehicleId}/trips/export")

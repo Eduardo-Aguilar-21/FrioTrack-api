@@ -128,7 +128,7 @@ public class VehicleService {
     ) {
         VehicleEntity current = entityById(id);
         Instant now = Instant.now();
-        String nextStatus = vehicleStatus(current.getCompany().getId(), currentTemperature, temperatureState, current.getStatus());
+        String nextStatus = vehicleStatus(current.getCompany().getId(), current.getDetectedProtocol(), currentTemperature, temperatureState, current.getStatus());
         if ("SIN_COMUNICACION".equalsIgnoreCase(nextStatus) && currentTemperature == null) {
             nextStatus = "EN_RANGO";
         }
@@ -166,7 +166,7 @@ public class VehicleService {
         return normalized.equals("ACTIVE") || normalized.equals("EN_RANGO") ? "EN_RANGO" : "INACTIVE";
     }
 
-    private String vehicleStatus(Long companyId, String currentTemperature, String temperatureState, String currentStatus) {
+    private String vehicleStatus(Long companyId, String protocol, String currentTemperature, String temperatureState, String currentStatus) {
         if (currentTemperature == null || currentTemperature.isBlank()) {
             return currentStatus;
         }
@@ -174,7 +174,7 @@ public class VehicleService {
         if (value == null) {
             return currentStatus;
         }
-        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(companyId);
+        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(companyId, protocol);
         if (value > rules.criticalHigh() || value < rules.criticalLow()) {
             return "CRITICO";
         }
@@ -236,7 +236,8 @@ public class VehicleService {
                 vehicle.getTemperatureState(),
                 vehicle.getDoorState(),
                 vehicle.getCoolingUnitState(),
-                lastCommunicationLabel(vehicle)
+                lastCommunicationLabel(vehicle),
+                vehicle.getDetectedProtocol()
         );
     }
 }

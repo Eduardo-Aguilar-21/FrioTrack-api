@@ -114,6 +114,48 @@ public class MobileDeviceService {
     }
 
 
+    public synchronized void updatePushToken(String token, String pushToken) {
+        List<MobileDevice> currentDevices = devices();
+        MobileDevice device = currentDevices.stream()
+                .filter(MobileDevice::active)
+                .filter(current -> constantTimeEquals(current.token(), token))
+                .findFirst()
+                .orElseThrow(() -> new AuthException("Token movil invalido"));
+        currentDevices.set(currentDevices.indexOf(device), new MobileDevice(
+                device.token(), device.companyId(), device.userId(), device.userName(), device.deviceName(),
+                pushToken == null ? "" : pushToken.trim(), device.createdAt(), Instant.now().toString(), true
+        ));
+        saveDevices(currentDevices);
+    }
+
+    public synchronized void deactivate(String token) {
+        List<MobileDevice> currentDevices = devices();
+        MobileDevice device = currentDevices.stream()
+                .filter(MobileDevice::active)
+                .filter(current -> constantTimeEquals(current.token(), token))
+                .findFirst()
+                .orElseThrow(() -> new AuthException("Token movil invalido"));
+        currentDevices.set(currentDevices.indexOf(device), new MobileDevice(
+                device.token(), device.companyId(), device.userId(), device.userName(), device.deviceName(),
+                "", device.createdAt(), Instant.now().toString(), false
+        ));
+        saveDevices(currentDevices);
+    }
+
+    public synchronized void invalidatePushToken(String pushToken) {
+        if (pushToken == null || pushToken.isBlank()) return;
+        List<MobileDevice> currentDevices = devices();
+        boolean changed = false;
+        for (int index = 0; index < currentDevices.size(); index++) {
+            MobileDevice device = currentDevices.get(index);
+            if (pushToken.equals(device.pushToken())) {
+                currentDevices.set(index, new MobileDevice(device.token(), device.companyId(), device.userId(), device.userName(), device.deviceName(), "", device.createdAt(), Instant.now().toString(), device.active()));
+                changed = true;
+            }
+        }
+        if (changed) saveDevices(currentDevices);
+    }
+
     public synchronized List<MobileDevice> activePushDevices(Long companyId, java.util.Set<Long> userIds) {
         return devices().stream()
                 .filter(MobileDevice::active)

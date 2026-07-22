@@ -1,0 +1,22 @@
+services:
+  friotrack-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: friotrack-api
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.runtime
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+    volumes:
+      - friotrack-api-logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  friotrack-api-logs:

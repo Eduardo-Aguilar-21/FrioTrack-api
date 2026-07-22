@@ -11,6 +11,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -36,10 +38,18 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/mobile/link").permitAll()
                         .requestMatchers("/api/realtime/stream").permitAll()
                         .requestMatchers("/api/mobile/alerts", "/api/mobile/alerts/**").permitAll()
+                        .requestMatchers("/api/mobile/vehicles", "/api/mobile/vehicles/**", "/api/mobile/push-token", "/api/mobile/session").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    @Bean
+    public UserDetailsService disabledDefaultUserDetailsService() {
+        return username -> {
+            throw new UsernameNotFoundException("Autenticacion basica deshabilitada");
+        };
     }
 
     @Bean

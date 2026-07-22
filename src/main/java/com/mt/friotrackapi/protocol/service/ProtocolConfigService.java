@@ -23,7 +23,9 @@ import java.util.Map;
 public class ProtocolConfigService {
 
     private final Path storePath = Path.of(System.getProperty("user.dir"), "data", "protocol-configs.json");
+    private final Path sourceStorePath = Path.of(System.getProperty("user.dir"), "data", "protocol-configs-by-source.json");
     private final Map<Long, StoredProtocolConfig> configs = new LinkedHashMap<>();
+    private final Map<String, StoredProtocolConfig> sourceConfigs = new LinkedHashMap<>();
     private final CompanyService companyService;
     private final JsonStoreService jsonStoreService;
 
@@ -31,20 +33,53 @@ public class ProtocolConfigService {
         this.companyService = companyService;
         this.jsonStoreService = jsonStoreService;
         loadConfigs();
+        loadSourceConfigs();
     }
 
     public ProtocolConfigResponse findByCompany(Long companyId) {
+        return findByCompany(companyId, "mqtt");
+    }
+
+    public List<ProtocolConfigResponse> findAllByCompany(Long companyId) {
         companyService.findById(companyId);
-        StoredProtocolConfig config = configs.computeIfAbsent(companyId, this::defaultConfig);
-        config = withBaseFields(config);
-        configs.put(companyId, config);
-        saveConfigs();
-        return toResponse(config);
+        List<ProtocolConfigResponse> result = new java.util.ArrayList<>();
+        result.add(findByCompany(companyId, "mqtt"));
+        String prefix = companyId + ":";
+        sourceConfigs.keySet().stream()
+                .filter(key -> key.startsWith(prefix))
+                .map(key -> key.substring(prefix.length()))
+                .filter(protocol -> !"mqtt".equals(protocol))
+                .distinct()
+                .sorted()
+                .forEach(protocol -> result.add(findByCompany(companyId, protocol)));
+        return List.copyOf(result);
+    }
+
+    public ProtocolConfigResponse findByCompany(Long companyId, String protocol) {
+        companyService.findById(companyId);
+        String normalizedProtocol = normalizeProtocol(protocol);
+        if ("mqtt".equals(normalizedProtocol)) {
+            StoredProtocolConfig config = configs.computeIfAbsent(companyId, this::defaultConfig);
+            config = withBaseFields(config, normalizedProtocol);
+            configs.put(companyId, config);
+            saveConfigs();
+            return toResponse(config, normalizedProtocol);
+        }
+        String key = sourceKey(companyId, normalizedProtocol);
+        StoredProtocolConfig config = sourceConfigs.computeIfAbsent(key, ignored -> defaultConfig(companyId, normalizedProtocol));
+        config = withBaseFields(config, normalizedProtocol);
+        sourceConfigs.put(key, config);
+        saveSourceConfigs();
+        return toResponse(config, normalizedProtocol);
     }
 
 
     public TemperatureRulesResponse temperatureRules(Long companyId) {
-        ProtocolConfigResponse config = findByCompany(companyId);
+        return temperatureRules(companyId, "mqtt");
+    }
+
+    public TemperatureRulesResponse temperatureRules(Long companyId, String protocol) {
+        ProtocolConfigResponse config = findByCompany(companyId, protocol);
         ProtocolFieldConfigResponse temperature = fieldForTarget(config.fields(), "temperature");
         TemperatureRulesResponse fallback = config.temperatureRules();
         if (temperature != null && "RANGE".equalsIgnoreCase(clean(temperature.alertMode()))) {
@@ -59,7 +94,11 @@ public class ProtocolConfigService {
     }
 
     public ProtocolFieldConfigResponse fieldForTarget(Long companyId, String targetField) {
-        return fieldForTarget(findByCompany(companyId).fields(), targetField);
+        return fieldForTarget(companyId, "mqtt", targetField);
+    }
+
+    public ProtocolFieldConfigResponse fieldForTarget(Long companyId, String protocol, String targetField) {
+        return fieldForTarget(findByCompany(companyId, protocol).fields(), targetField);
     }
 
     private ProtocolFieldConfigResponse fieldForTarget(List<ProtocolFieldConfigResponse> fields, String targetField) {
@@ -73,7 +112,11 @@ public class ProtocolConfigService {
     }
 
     public String targetRangeLabel(Long companyId) {
-        TemperatureRulesResponse rules = temperatureRules(companyId);
+        return targetRangeLabel(companyId, "mqtt");
+    }
+
+    public String targetRangeLabel(Long companyId, String protocol) {
+        TemperatureRulesResponse rules = temperatureRules(companyId, protocol);
         return formatRuleNumber(rules.minAllowed()) + " °C a " + formatRuleNumber(rules.maxAllowed()) + " °C";
     }
 
@@ -102,11 +145,15 @@ public class ProtocolConfigService {
     }
 
     public boolean isFieldEnabled(Long companyId, String targetField) {
+        return isFieldEnabled(companyId, "mqtt", targetField);
+    }
+
+    public boolean isFieldEnabled(Long companyId, String protocol, String targetField) {
         if (targetField == null || targetField.isBlank()) {
             return true;
         }
 
-        ProtocolConfigResponse config = findByCompany(companyId);
+        ProtocolConfigResponse config = findByCompany(companyId, protocol);
         return config.fields().stream()
                 .filter(field -> targetField.equalsIgnoreCase(field.targetField()) || targetField.equalsIgnoreCase(field.key()))
                 .findFirst()
@@ -115,16 +162,24 @@ public class ProtocolConfigService {
     }
 
     public boolean isEventTypeEnabled(Long companyId, String type) {
+        return isEventTypeEnabled(companyId, "mqtt", type);
+    }
+
+    public boolean isEventTypeEnabled(Long companyId, String protocol, String type) {
         String targetField = targetFieldForType(type);
-        return targetField == null || isFieldEnabled(companyId, targetField);
+        return targetField == null || isFieldEnabled(companyId, protocol, targetField);
     }
 
     public String alertIconForType(Long companyId, String type, String fallbackIcon) {
+        return alertIconForType(companyId, "mqtt", type, fallbackIcon);
+    }
+
+    public String alertIconForType(Long companyId, String protocol, String type, String fallbackIcon) {
         String targetField = targetFieldForType(type);
         if (targetField == null) {
             return fallbackIcon;
         }
-        ProtocolFieldConfigResponse field = fieldForTarget(companyId, targetField);
+        ProtocolFieldConfigResponse field = fieldForTarget(companyId, protocol, targetField);
         if (field == null || field.alertIcon() == null || field.alertIcon().isBlank()) {
             return fallbackIcon;
         }
@@ -154,6 +209,7 @@ public class ProtocolConfigService {
 
     public ProtocolConfigResponse save(SaveProtocolConfigRequest request) {
         companyService.findById(request.companyId());
+        String protocol = normalizeProtocol(request.protocol());
         StoredProtocolConfig config = new StoredProtocolConfig(
                 request.companyId(),
                 clean(request.brokerName()),
@@ -163,15 +219,21 @@ public class ProtocolConfigService {
                 rulesFromFields(request.fields(), request.temperatureRules()),
                 normalizeAdvancedRules(request.advancedAlertRules())
         );
-        configs.put(request.companyId(), config);
-        saveConfigs();
-        return toResponse(config);
+        if ("mqtt".equals(protocol)) {
+            configs.put(request.companyId(), config);
+            saveConfigs();
+        } else {
+            sourceConfigs.put(sourceKey(request.companyId(), protocol), config);
+            saveSourceConfigs();
+        }
+        return toResponse(config, protocol);
     }
 
-    private ProtocolConfigResponse toResponse(StoredProtocolConfig config) {
-        List<ProtocolFieldConfigResponse> fields = withBaseFields(config).fields().stream().map(this::normalizeField).toList();
+    private ProtocolConfigResponse toResponse(StoredProtocolConfig config, String protocol) {
+        List<ProtocolFieldConfigResponse> fields = withBaseFields(config, protocol).fields().stream().map(this::normalizeField).toList();
         return new ProtocolConfigResponse(
                 config.companyId(),
+                protocol,
                 config.brokerName(),
                 config.topicPattern(),
                 topicExample(config.topicPattern()),
@@ -183,9 +245,9 @@ public class ProtocolConfigService {
         );
     }
 
-    private StoredProtocolConfig withBaseFields(StoredProtocolConfig config) {
+    private StoredProtocolConfig withBaseFields(StoredProtocolConfig config, String protocol) {
         List<ProtocolFieldConfigResponse> currentFields = config.fields() == null ? List.of() : config.fields();
-        List<ProtocolFieldConfigResponse> baseFields = defaultConfig(config.companyId()).fields();
+        List<ProtocolFieldConfigResponse> baseFields = defaultConfig(config.companyId(), protocol).fields();
         Map<String, ProtocolFieldConfigResponse> currentByTarget = new LinkedHashMap<>();
 
         for (ProtocolFieldConfigResponse field : currentFields) {
@@ -464,6 +526,30 @@ public class ProtocolConfigService {
         );
     }
 
+    private StoredProtocolConfig defaultConfig(Long companyId, String protocol) {
+        StoredProtocolConfig base = defaultConfig(companyId);
+        if ("mqtt".equals(normalizeProtocol(protocol))) return base;
+        List<ProtocolFieldConfigResponse> fields = base.fields().stream()
+                .map(field -> copyWithPath(field, traccarPath(field.targetField())))
+                .toList();
+        return new StoredProtocolConfig(companyId, "Traccar / " + normalizeProtocol(protocol), "traccar/{id}", "", fields, base.temperatureRules(), base.advancedAlertRules());
+    }
+
+    private ProtocolFieldConfigResponse copyWithPath(ProtocolFieldConfigResponse field, String jsonPath) {
+        return new ProtocolFieldConfigResponse(field.key(), field.label(), field.enabled(), jsonPath, field.dataType(), field.unit(), field.sampleValue(), field.targetField(), field.required(), field.alertMode(), field.alertActivationValue(), field.alertMin(), field.alertMax(), field.alertIcon());
+    }
+
+    private String traccarPath(String targetField) {
+        return switch (clean(targetField)) {
+            case "latitude" -> "latitude";
+            case "longitude" -> "longitude";
+            case "speed" -> "speed";
+            case "ignitionState" -> "attributes.ignition";
+            case "battery" -> "attributes.battery";
+            default -> "";
+        };
+    }
+
     private void loadConfigs() {
         configs.putAll(jsonStoreService.read(
                 "protocol-configs",
@@ -477,8 +563,32 @@ public class ProtocolConfigService {
 
 
 
+    private void loadSourceConfigs() {
+        sourceConfigs.putAll(jsonStoreService.read(
+                "protocol-configs-by-source",
+                sourceStorePath,
+                new TypeReference<Map<String, StoredProtocolConfig>>() {},
+                LinkedHashMap::new,
+                "No se pudieron cargar configuraciones por protocolo",
+                "No se pudo persistir configuracion por protocolo"
+        ));
+    }
+
     private void saveConfigs() {
         jsonStoreService.write("protocol-configs", storePath, configs, "No se pudo persistir configuracion de protocolo");
+    }
+
+    private void saveSourceConfigs() {
+        jsonStoreService.write("protocol-configs-by-source", sourceStorePath, sourceConfigs, "No se pudo persistir configuracion por protocolo");
+    }
+
+    private String sourceKey(Long companyId, String protocol) {
+        return companyId + ":" + normalizeProtocol(protocol);
+    }
+
+    private String normalizeProtocol(String protocol) {
+        String normalized = clean(protocol).toLowerCase(java.util.Locale.ROOT);
+        return normalized.isBlank() ? "mqtt" : normalized;
     }
 
     private Map<Long, StoredProtocolConfig> defaultConfigs() {

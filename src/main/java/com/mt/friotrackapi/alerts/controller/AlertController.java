@@ -6,6 +6,7 @@ import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.auth.service.CurrentUserService;
 import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.notifications.service.NotificationDeliveryService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,6 +45,16 @@ public class AlertController {
             @RequestParam(required = false) String search
     ) {
         return ApiResponse.ok(alertService.findAll(tenantAccessService.resolveCompanyId(companyId), severity, status, type, vehicle, search));
+    }
+
+    @GetMapping("/paged")
+    public ApiResponse<PageResponse<AlertResponse>> findPage(
+            @RequestParam(required = false) Long companyId, @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String status, @RequestParam(required = false) String type,
+            @RequestParam(required = false) String vehicle, @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "25") int size) {
+        return ApiResponse.ok(alertService.findPage(
+                tenantAccessService.resolveCompanyId(companyId), severity, status, type, vehicle, search, page, size));
     }
 
     @GetMapping("/summary")

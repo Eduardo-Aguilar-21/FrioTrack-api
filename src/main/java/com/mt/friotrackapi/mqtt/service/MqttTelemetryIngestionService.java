@@ -8,6 +8,7 @@ import com.mt.friotrackapi.protocol.dto.ProtocolFieldConfigResponse;
 import com.mt.friotrackapi.protocol.dto.TemperatureRulesResponse;
 import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.telemetry.service.TelemetryService;
+import com.mt.friotrackapi.tracking.service.AdvancedRuleStateService;
 import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
 import com.mt.friotrackapi.vehicles.service.VehicleService;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class MqttTelemetryIngestionService {
@@ -26,29 +26,43 @@ public class MqttTelemetryIngestionService {
     private final TelemetryService telemetryService;
     private final AlertService alertService;
     private final ProtocolConfigService protocolConfigService;
-    private final Map<String, Instant> advancedConditionSince = new ConcurrentHashMap<>();
+    private final AdvancedRuleStateService advancedRuleStateService;
 
     public MqttTelemetryIngestionService(
             VehicleService vehicleService,
             ProtocolPayloadMapper protocolPayloadMapper,
             TelemetryService telemetryService,
             AlertService alertService,
-            ProtocolConfigService protocolConfigService
+            ProtocolConfigService protocolConfigService,
+            AdvancedRuleStateService advancedRuleStateService
     ) {
         this.vehicleService = vehicleService;
         this.protocolPayloadMapper = protocolPayloadMapper;
         this.telemetryService = telemetryService;
         this.alertService = alertService;
         this.protocolConfigService = protocolConfigService;
+        this.advancedRuleStateService = advancedRuleStateService;
     }
 
     public void ingest(String topic, String payload) {
         Long vehicleId = vehicleIdFromTopic(topic);
         VehicleResponse vehicle = vehicleService.findById(vehicleId);
         validateTopicPattern(protocolConfigService.findByCompany(vehicle.companyId()).topicPattern(), topic, vehicleId);
-        ProtocolTelemetryData data = protocolPayloadMapper.map(vehicle.companyId(), payload);
+        ingest(vehicle, "mqtt", payload, payload);
+    }
 
-        telemetryService.applyMqttTelemetry(vehicle, data, payload);
+    public void ingestVehicle(Long vehicleId, String mappingPayload, String rawPayload) {
+        ingestVehicle(vehicleId, "mqtt", mappingPayload, rawPayload);
+    }
+
+    public void ingestVehicle(Long vehicleId, String protocol, String mappingPayload, String rawPayload) {
+        ingest(vehicleService.findById(vehicleId), protocol, mappingPayload, rawPayload);
+    }
+
+    private void ingest(VehicleResponse vehicle, String protocol, String mappingPayload, String rawPayload) {
+        ProtocolTelemetryData data = protocolPayloadMapper.map(vehicle.companyId(), protocol, mappingPayload);
+
+        telemetryService.applyMqttTelemetry(vehicle, data, rawPayload);
         VehicleResponse updatedVehicle = vehicleService.updateTelemetryState(
                 vehicle.id(),
                 data.latitude(),
@@ -63,11 +77,11 @@ public class MqttTelemetryIngestionService {
         alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK", updatedVehicle.code());
         alertService.resolveMqttAlert(updatedVehicle.companyId(), "NETWORK_WARNING", updatedVehicle.code());
 
-        processAdvancedRules(updatedVehicle, data);
-        processTemperature(updatedVehicle, data);
-        processDoor(updatedVehicle, data);
-        processCooling(updatedVehicle, data);
-        processCustomFieldAlerts(updatedVehicle, data);
+        processAdvancedRules(updatedVehicle, protocol, data);
+        processTemperature(updatedVehicle, protocol, data);
+        processDoor(updatedVehicle, protocol, data);
+        processCooling(updatedVehicle, protocol, data);
+        processCustomFieldAlerts(updatedVehicle, protocol, data);
         processMapperErrors(updatedVehicle, data);
     }
 
@@ -95,22 +109,22 @@ public class MqttTelemetryIngestionService {
         }
     }
 
-    private void processTemperature(VehicleResponse vehicle, ProtocolTelemetryData data) {
-        if (hasEnabledAdvancedRule(vehicle.companyId(), "temperature")) {
+    private void processTemperature(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data) {
+        if (hasEnabledAdvancedRule(vehicle.companyId(), protocol, "temperature")) {
             alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
             return;
         }
 
-        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), "temperature");
+        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, "temperature");
         if (data.temperatureValue() == null || field == null || !"RANGE".equalsIgnoreCase(field.alertMode())) {
             alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
             return;
         }
 
         double value = data.temperatureValue();
-        double min = field.alertMin() == null ? protocolConfigService.temperatureRules(vehicle.companyId()).minAllowed() : field.alertMin();
-        double max = field.alertMax() == null ? protocolConfigService.temperatureRules(vehicle.companyId()).maxAllowed() : field.alertMax();
-        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(vehicle.companyId());
+        double min = field.alertMin() == null ? protocolConfigService.temperatureRules(vehicle.companyId(), protocol).minAllowed() : field.alertMin();
+        double max = field.alertMax() == null ? protocolConfigService.temperatureRules(vehicle.companyId(), protocol).maxAllowed() : field.alertMax();
+        TemperatureRulesResponse rules = protocolConfigService.temperatureRules(vehicle.companyId(), protocol);
         if (value > max || value < min) {
             String severity = value > rules.criticalHigh() || value < rules.criticalLow() ? "CRITICAL" : "WARNING";
             String title = value > max ? "Temperatura alta" : "Temperatura baja";
@@ -125,28 +139,28 @@ public class MqttTelemetryIngestionService {
         alertService.resolveMqttAlert(vehicle.companyId(), "TEMPERATURE", vehicle.code());
     }
 
-    private void processAdvancedRules(VehicleResponse vehicle, ProtocolTelemetryData data) {
-        List<AdvancedAlertRuleResponse> rules = protocolConfigService.findByCompany(vehicle.companyId()).advancedAlertRules();
+    private void processAdvancedRules(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data) {
+        List<AdvancedAlertRuleResponse> rules = protocolConfigService.findByCompany(vehicle.companyId(), protocol).advancedAlertRules();
         for (int index = 0; index < rules.size(); index++) {
             AdvancedAlertRuleResponse rule = rules.get(index);
             String type = "ADVANCED_" + normalizeRulePart(rule.conditionField()) + "_" + index;
             String stateKey = vehicle.id() + ":" + type;
 
-            if (!Boolean.TRUE.equals(rule.enabled()) || !matchesAdvancedRule(vehicle, data, rule, stateKey)) {
-                advancedConditionSince.remove(stateKey);
-                advancedConditionSince.remove(stateKey + ":stopped");
+            if (!Boolean.TRUE.equals(rule.enabled()) || !matchesAdvancedRule(vehicle, protocol, data, rule, stateKey)) {
+                advancedRuleStateService.clearCondition(stateKey);
+                advancedRuleStateService.clearStopped(stateKey);
                 alertService.resolveMqttAlert(vehicle.companyId(), type, vehicle.code());
                 continue;
             }
 
-            Instant activeSince = advancedConditionSince.computeIfAbsent(stateKey, ignored -> Instant.now());
+            Instant activeSince = advancedRuleStateService.conditionSince(stateKey, vehicle.id(), vehicle.companyId(), protocol, type);
             long requiredSeconds = rule.persistenceSeconds() == null ? 60L : rule.persistenceSeconds();
             if (Instant.now().isBefore(activeSince.plusSeconds(requiredSeconds))) {
                 alertService.resolveMqttAlert(vehicle.companyId(), type, vehicle.code());
                 continue;
             }
 
-            ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), rule.conditionField());
+            ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, rule.conditionField());
             String title = rule.name() == null || rule.name().isBlank() ? "Regla avanzada" : rule.name();
             String description = "Condicion " + ruleDescription(rule) + " confirmada durante " + requiredSeconds + " segundos";
             alertService.recordMqttAlert(vehicle.companyId(), type, "WARNING", title, description, vehicle.label(), vehicle.code(), field == null ? null : field.alertIcon(), String.valueOf(valueForRule(data, rule.conditionField())));
@@ -154,13 +168,13 @@ public class MqttTelemetryIngestionService {
         }
     }
 
-    private boolean hasEnabledAdvancedRule(Long companyId, String targetField) {
-        return protocolConfigService.findByCompany(companyId).advancedAlertRules().stream()
+    private boolean hasEnabledAdvancedRule(Long companyId, String protocol, String targetField) {
+        return protocolConfigService.findByCompany(companyId, protocol).advancedAlertRules().stream()
                 .anyMatch(rule -> Boolean.TRUE.equals(rule.enabled()) && targetField.equalsIgnoreCase(rule.conditionField()));
     }
 
-    private boolean matchesAdvancedRule(VehicleResponse vehicle, ProtocolTelemetryData data, AdvancedAlertRuleResponse rule, String stateKey) {
-        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), rule.conditionField());
+    private boolean matchesAdvancedRule(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data, AdvancedAlertRuleResponse rule, String stateKey) {
+        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, rule.conditionField());
         Double value = valueForRule(data, rule.conditionField());
         if (field == null || value == null || field.alertMin() == null || field.alertMax() == null) {
             return false;
@@ -178,10 +192,10 @@ public class MqttTelemetryIngestionService {
 
         if (rule.stationaryDurationSeconds() != null) {
             if (Boolean.TRUE.equals(rule.requireMoving()) || moving) return false;
-            Instant stoppedSince = advancedConditionSince.computeIfAbsent(stateKey + ":stopped", ignored -> Instant.now());
+            Instant stoppedSince = advancedRuleStateService.stoppedSince(stateKey, vehicle.id(), vehicle.companyId(), protocol, rule.conditionField());
             return !Instant.now().isBefore(stoppedSince.plusSeconds(rule.stationaryDurationSeconds()));
         }
-        advancedConditionSince.remove(stateKey + ":stopped");
+        advancedRuleStateService.clearStopped(stateKey);
         return true;
     }
 
@@ -219,8 +233,8 @@ public class MqttTelemetryIngestionService {
         return value == null ? "FIELD" : value.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_");
     }
 
-    private void processDoor(VehicleResponse vehicle, ProtocolTelemetryData data) {
-        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), "doorState");
+    private void processDoor(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data) {
+        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, "doorState");
         if (data.doorState() == null || field == null || !"ACTIVATION".equalsIgnoreCase(field.alertMode())) {
             alertService.resolveMqttAlert(vehicle.companyId(), "DOOR", vehicle.code());
             return;
@@ -236,8 +250,8 @@ public class MqttTelemetryIngestionService {
         alertService.resolveMqttAlert(vehicle.companyId(), "DOOR", vehicle.code());
     }
 
-    private void processCooling(VehicleResponse vehicle, ProtocolTelemetryData data) {
-        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), "coolingUnitState");
+    private void processCooling(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data) {
+        ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, "coolingUnitState");
         if (data.coolingUnitState() == null || field == null || !"ACTIVATION".equalsIgnoreCase(field.alertMode())) {
             alertService.resolveMqttAlert(vehicle.companyId(), "COOLING", vehicle.code());
             return;
@@ -253,13 +267,13 @@ public class MqttTelemetryIngestionService {
         alertService.resolveMqttAlert(vehicle.companyId(), "COOLING", vehicle.code());
     }
 
-    private void processCustomFieldAlerts(VehicleResponse vehicle, ProtocolTelemetryData data) {
+    private void processCustomFieldAlerts(VehicleResponse vehicle, String protocol, ProtocolTelemetryData data) {
         if (data.customFields() == null || data.customFields().isEmpty()) {
             return;
         }
 
         for (var entry : data.customFields().entrySet()) {
-            ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), entry.getKey());
+            ProtocolFieldConfigResponse field = protocolConfigService.fieldForTarget(vehicle.companyId(), protocol, entry.getKey());
             if (field == null || "NONE".equalsIgnoreCase(field.alertMode())) {
                 continue;
             }

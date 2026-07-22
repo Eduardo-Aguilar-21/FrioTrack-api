@@ -4,6 +4,7 @@ import com.mt.friotrackapi.alerts.dto.AlertResponse;
 import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
 import com.mt.friotrackapi.alerts.entity.AlertEntity;
 import com.mt.friotrackapi.common.exception.ApiException;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.companies.entity.CompanyEntity;
 import com.mt.friotrackapi.companies.service.CompanyService;
 import com.mt.friotrackapi.notifications.service.NotificationDeliveryService;
@@ -11,7 +12,9 @@ import com.mt.friotrackapi.protocol.service.ProtocolConfigService;
 import com.mt.friotrackapi.realtime.service.RealtimeEventService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +56,50 @@ public class AlertService {
                 .filter(alert -> isBlank(term) || contains(searchText(alert), term))
                 .map(this::withCurrentProtocolIcon)
                 .toList();
+    }
+
+
+    public PageResponse<AlertResponse> findPage(Long companyId, String severity, String status, String type, String vehicle, String search, int requestedPage, int requestedSize) {
+        int page = Math.max(0, requestedPage);
+        int size = Math.max(1, Math.min(requestedSize, 200));
+        StringBuilder where = new StringBuilder(" where 1=1");
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        if (companyId != null) {
+            where.append(" and a.company.id = :companyId");
+            parameters.put("companyId", companyId);
+        }
+        addExactFilter(where, parameters, "severity", severity);
+        if ("ACTIVE".equalsIgnoreCase(status)) {
+            where.append(" and lower(a.status) not in ('revisada', 'reconocida', 'resuelta')");
+        } else if ("REVIEWED".equalsIgnoreCase(status)) {
+            where.append(" and lower(a.status) in ('revisada', 'reconocida', 'resuelta')");
+        } else {
+            addExactFilter(where, parameters, "status", status);
+        }
+        addExactFilter(where, parameters, "type", type);
+        if (!isBlank(vehicle)) {
+            where.append(" and (lower(a.vehicleLabel) like :vehicle or lower(a.vehicleCode) like :vehicle)");
+            parameters.put("vehicle", "%" + normalize(vehicle) + "%");
+        }
+        if (!isBlank(search)) {
+            where.append(" and (lower(a.title) like :search or lower(a.description) like :search or lower(a.vehicleLabel) like :search or lower(a.vehicleCode) like :search or lower(a.type) like :search or lower(a.severity) like :search or lower(a.status) like :search or lower(coalesce(a.reading, '')) like :search)");
+            parameters.put("search", "%" + normalize(search) + "%");
+        }
+        var dataQuery = entityManager.createQuery("select a from AlertEntity a" + where + " order by a.id desc", AlertEntity.class);
+        var countQuery = entityManager.createQuery("select count(a) from AlertEntity a" + where, Long.class);
+        parameters.forEach((name, value) -> {
+            dataQuery.setParameter(name, value);
+            countQuery.setParameter(name, value);
+        });
+        List<AlertResponse> items = dataQuery.setFirstResult(page * size).setMaxResults(size).getResultList().stream()
+                .map(this::toResponse).filter(this::isProtocolEnabled).map(this::withCurrentProtocolIcon).toList();
+        return PageResponse.fromPage(items, page, size, countQuery.getSingleResult());
+    }
+
+    private void addExactFilter(StringBuilder where, Map<String, Object> parameters, String field, String value) {
+        if (isBlank(value) || "ALL".equalsIgnoreCase(value)) return;
+        where.append(" and lower(a.").append(field).append(") = :").append(field);
+        parameters.put(field, normalize(value));
     }
 
     public AlertResponse findById(Long id) {
@@ -246,11 +293,12 @@ public class AlertService {
     }
 
     private String currentIconFor(AlertResponse alert, String fallbackIcon) {
-        return currentIconFor(alert.companyId(), alert.type(), fallbackIcon);
+        String protocol = protocolForVehicle(alert.companyId(), alert.vehicleCode());
+        return protocolConfigService.alertIconForType(alert.companyId(), protocol, alert.type(), iconOrDefault(fallbackIcon, alert.type()));
     }
 
     private String currentIconFor(Long companyId, String type, String fallbackIcon) {
-        return protocolConfigService.alertIconForType(companyId, type, iconOrDefault(fallbackIcon, type));
+        return protocolConfigService.alertIconForType(companyId, "mqtt", type, iconOrDefault(fallbackIcon, type));
     }
 
     private String iconOrDefault(String icon, String type) {
@@ -270,7 +318,21 @@ public class AlertService {
     }
 
     private boolean isProtocolEnabled(AlertResponse alert) {
-        return protocolConfigService.isEventTypeEnabled(alert.companyId(), alert.type());
+        return protocolConfigService.isEventTypeEnabled(alert.companyId(), protocolForVehicle(alert.companyId(), alert.vehicleCode()), alert.type());
+    }
+
+    private String protocolForVehicle(Long companyId, String vehicleCode) {
+        if (companyId == null || vehicleCode == null || vehicleCode.isBlank()) return "mqtt";
+        List<String> protocols = entityManager.createQuery(
+                        "select v.detectedProtocol from VehicleEntity v where v.company.id = :companyId and lower(v.code) = lower(:vehicleCode)",
+                        String.class
+                )
+                .setParameter("companyId", companyId)
+                .setParameter("vehicleCode", vehicleCode)
+                .setMaxResults(1)
+                .getResultList();
+        String protocol = protocols.isEmpty() ? null : protocols.get(0);
+        return protocol == null || protocol.isBlank() ? "mqtt" : protocol;
     }
 
     private boolean matches(String expected, String actual) {

@@ -5,16 +5,23 @@ import com.mt.friotrackapi.alerts.dto.AlertSummaryResponse;
 import com.mt.friotrackapi.alerts.service.AlertService;
 import com.mt.friotrackapi.auth.service.TenantAccessService;
 import com.mt.friotrackapi.common.response.ApiResponse;
+import com.mt.friotrackapi.common.dto.PageResponse;
 import com.mt.friotrackapi.mobile.dto.CreateMobileAccessCodeRequest;
 import com.mt.friotrackapi.mobile.dto.LinkMobileDeviceRequest;
 import com.mt.friotrackapi.mobile.dto.MobileAccessCodeResponse;
 import com.mt.friotrackapi.mobile.dto.MobileSessionResponse;
 import com.mt.friotrackapi.mobile.service.MobileDeviceService;
 import com.mt.friotrackapi.mobile.service.MobilePushNotificationService;
+import com.mt.friotrackapi.mobile.dto.UpdateMobilePushTokenRequest;
 import com.mt.friotrackapi.auth.service.CurrentUserService;
+import com.mt.friotrackapi.tracking.dto.TripResponse;
+import com.mt.friotrackapi.tracking.service.TrackingService;
+import com.mt.friotrackapi.vehicles.dto.VehicleResponse;
+import com.mt.friotrackapi.vehicles.service.VehicleService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,13 +42,17 @@ public class MobileController {
     private final TenantAccessService tenantAccessService;
     private final MobilePushNotificationService mobilePushNotificationService;
     private final CurrentUserService currentUserService;
+    private final VehicleService vehicleService;
+    private final TrackingService trackingService;
 
-    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService, MobilePushNotificationService mobilePushNotificationService, CurrentUserService currentUserService) {
+    public MobileController(MobileDeviceService mobileDeviceService, AlertService alertService, TenantAccessService tenantAccessService, MobilePushNotificationService mobilePushNotificationService, CurrentUserService currentUserService, VehicleService vehicleService, TrackingService trackingService) {
         this.mobileDeviceService = mobileDeviceService;
         this.alertService = alertService;
         this.tenantAccessService = tenantAccessService;
         this.mobilePushNotificationService = mobilePushNotificationService;
         this.currentUserService = currentUserService;
+        this.vehicleService = vehicleService;
+        this.trackingService = trackingService;
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'OPERADOR', 'SA')")
@@ -67,6 +78,22 @@ public class MobileController {
     ) {
         Long companyId = mobileDeviceService.authenticate(request).companyId();
         return ApiResponse.ok(alertService.findAll(companyId, severity, status, type, vehicle, search));
+    }
+
+
+    @GetMapping("/alerts/paged")
+    public ApiResponse<PageResponse<AlertResponse>> alertPage(
+            HttpServletRequest request,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String vehicle,
+            @RequestParam(required = false) String search,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size
+    ) {
+        Long companyId = mobileDeviceService.authenticate(request).companyId();
+        return ApiResponse.ok(alertService.findPage(companyId, severity, status, type, vehicle, search, page, size));
     }
 
     @GetMapping("/alerts/summary")
@@ -104,6 +131,44 @@ public class MobileController {
         AlertResponse reviewed = alertService.acknowledge(id);
         mobilePushNotificationService.markRead(id, device.token());
         return ApiResponse.ok("Alerta revisada", reviewed);
+    }
+
+    @PatchMapping("/push-token")
+    public ApiResponse<Void> updatePushToken(HttpServletRequest request, @RequestBody UpdateMobilePushTokenRequest body) {
+        var device = mobileDeviceService.authenticate(request);
+        mobileDeviceService.updatePushToken(device.token(), body == null ? null : body.pushToken());
+        return ApiResponse.ok("Push token actualizado", null);
+    }
+
+    @DeleteMapping("/session")
+    public ApiResponse<Void> unlinkDevice(HttpServletRequest request) {
+        var device = mobileDeviceService.authenticate(request);
+        mobileDeviceService.deactivate(device.token());
+        return ApiResponse.ok("Dispositivo desvinculado", null);
+    }
+
+    @GetMapping("/vehicles")
+    public ApiResponse<List<VehicleResponse>> vehicles(HttpServletRequest request) {
+        var device = mobileDeviceService.authenticate(request);
+        return ApiResponse.ok(vehicleService.findAll(device.companyId()));
+    }
+
+    @GetMapping("/vehicles/{vehicleId}/trips")
+    public ApiResponse<List<TripResponse>> trips(
+            HttpServletRequest request,
+            @PathVariable Long vehicleId,
+            @RequestParam(defaultValue = "7") int days
+    ) {
+        var device = mobileDeviceService.authenticate(request);
+        VehicleResponse vehicle = vehicleService.findById(vehicleId);
+        requireMobileCompany(device.companyId(), vehicle);
+        return ApiResponse.ok(trackingService.trips(vehicleId, Math.max(1, Math.min(days, 90))));
+    }
+
+    private void requireMobileCompany(Long companyId, VehicleResponse vehicle) {
+        if (!vehicle.companyId().equals(companyId)) {
+            throw new com.mt.friotrackapi.common.exception.ForbiddenException("No puedes acceder a este vehiculo");
+        }
     }
 
     private void requireMobileCompany(Long companyId, AlertResponse alert) {

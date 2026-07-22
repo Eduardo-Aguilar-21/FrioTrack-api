@@ -60,6 +60,8 @@ public class VehicleEntity {
     private String lastCommunication;
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
+    @Column(name = "detected_protocol")
+    private String detectedProtocol;
 
     protected VehicleEntity() {}
 
@@ -104,6 +106,7 @@ public class VehicleEntity {
     public String getCoolingUnitState() { return coolingUnitState; }
     public String getLastCommunication() { return lastCommunication; }
     public Instant getLastSeenAt() { return lastSeenAt; }
+    public String getDetectedProtocol() { return detectedProtocol; }
 
     public void updateIdentity(CompanyEntity company, String code, String plate, String label, String driver, String deviceId, String model, Integer year, String unitType, Integer loadCapacityKg) {
         this.company = company;
@@ -120,6 +123,7 @@ public class VehicleEntity {
 
     public void setStatus(String status) { this.status = status; }
     public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
+    public void setDetectedProtocol(String detectedProtocol) { this.detectedProtocol = detectedProtocol; }
 
     public void updateTelemetry(Double latitude, Double longitude, String currentTemperature, String temperatureState, String doorState, String coolingUnitState, String lastCommunication, Instant lastSeenAt, String status) {
         if (latitude != null) this.latitude = latitude;
